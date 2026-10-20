@@ -1,0 +1,36 @@
+[package]
+name = "bens"
+version = "0.1.0"
+description = "Bens — a lightweight desktop Kubernetes IDE built with Tauri and Rust"
+license = "Apache-2.0"
+edition = "2021"
+rust-version = "1.90"
+
+[lib]
+name = "bens_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+tauri-plugin-dialog = "2"
+tauri-plugin-opener = "2"
+portable-pty = "0.9"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+serde_yaml_ng = "0.10"
+kube = { version = "4.2", features = ["runtime", "ws", "http-proxy", "socks5"] }
+k8s-openapi = { version = "0.28", features = ["latest"] }
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync", "time", "io-util", "process"] }
+futures = "0.3"
+base64 = "0.22"
+flate2 = "1"
+http = "1"
+thiserror = "2"
+
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2 = "0.6"
+objc2-app-kit = { version = "0.3", default-features = false, features = ["std", "NSWindow", "NSView", "NSResponder", "NSButton", "NSControl", "objc2-core-foundation"] }
+objc2-core-foundation = { version = "0.3", default-features = false, features = ["std", "CFCGTypes"] }
