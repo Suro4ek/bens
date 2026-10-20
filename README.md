@@ -210,6 +210,24 @@ To publish a release:
 
 3. The workflow creates a **draft release** with all installers attached. Review it and click **Publish**.
 
+### Code signing (macOS)
+
+Without signing, macOS shows a warning on first launch. With an Apple Developer Program membership the
+workflow signs the app with your **Developer ID Application** certificate and notarizes it, so it opens
+on any Mac without warnings. Add these repository secrets (**Settings → Secrets and variables → Actions**):
+
+| Secret | Value |
+|---|---|
+| `APPLE_CERTIFICATE` | The Developer ID Application certificate exported as `.p12`, base64-encoded: `base64 -i cert.p12 \| pbcopy` |
+| `APPLE_CERTIFICATE_PASSWORD` | The password set when exporting the `.p12` |
+| `APPLE_SIGNING_IDENTITY` | e.g. `Developer ID Application: Your Name (TEAMID1234)` — see `security find-identity -v -p codesigning` |
+| `APPLE_ID` | Your Apple ID email |
+| `APPLE_PASSWORD` | An [app-specific password](https://account.apple.com) for that Apple ID |
+| `APPLE_TEAM_ID` | Your 10-character Team ID |
+
+Instead of `APPLE_ID` / `APPLE_PASSWORD` / `APPLE_TEAM_ID` you can notarize with an App Store Connect API key:
+`APPLE_API_KEY` (key ID), `APPLE_API_ISSUER` (issuer ID) and `APPLE_API_KEY_P8` (contents of the `.p8` file).
+
 ## Contributing
 
 Contributions are welcome — bug reports, feature ideas and pull requests.
