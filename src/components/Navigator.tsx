@@ -16,6 +16,8 @@ interface Props {
   current?: string;
   onConnect: (ctx: ContextInfo) => void;
   onSettings: (ctx: ContextInfo) => void;
+  /** Right click on a cluster: its menu (connect, reconnect, settings…). */
+  onClusterMenu: (ctx: ContextInfo, x: number, y: number) => void;
   onPick: (viewId: string) => void;
   onHome: () => void;
   onSearch: () => void;
@@ -25,7 +27,7 @@ const WIDTH_KEY = "navigatorWidth";
 const OPEN_KEY = "navigatorOpen";
 
 /** Navigator: a tree of kubeconfigs → clusters → the connected cluster's resources. */
-export function Navigator({ contexts, activeId, connecting, connection, current, onConnect, onSettings, onPick, onHome, onSearch }: Props) {
+export function Navigator({ contexts, activeId, connecting, connection, current, onConnect, onSettings, onClusterMenu, onPick, onHome, onSearch }: Props) {
   const { clusters } = usePrefs();
   const tree = useMemo(() => (connection ? buildNavTree(connection.resources) : []), [connection]);
   const [open, setOpen] = useState<Record<string, boolean>>(() => {
@@ -117,7 +119,7 @@ export function Navigator({ contexts, activeId, connecting, connection, current,
                   onClick={() => (active ? setOpenKey(`c:${c.id}`, !expanded) : onConnect(c))}
                   onContextMenu={(e) => {
                     e.preventDefault();
-                    onSettings(c);
+                    onClusterMenu(c, e.clientX, e.clientY);
                   }}
                 >
                   <span className={`chev ${expanded ? "open" : ""}`}>

@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { api, PromSeries } from "../api";
 import { useActiveClusterPrefs } from "../prefs";
+import { useConnectionEpoch } from "../useWatch";
 
 const RANGE_S = 60 * 60; // last hour
 const STEP_S = 60;
@@ -14,13 +15,15 @@ const hasPrometheus = () => (promAvailable ??= api.prometheusDetect().then((s) =
 /** Whether Prometheus charts can be shown (null while checking). */
 export function usePrometheusAvailable(): boolean | null {
   const [available, setAvailable] = useState<boolean | null>(null);
+  const epoch = useConnectionEpoch();
   useEffect(() => {
     let alive = true;
+    setAvailable(null);
     hasPrometheus().then((v) => alive && setAvailable(v));
     return () => {
       alive = false;
     };
-  }, []);
+  }, [epoch]);
   return available;
 }
 
@@ -35,6 +38,7 @@ export function usePromRange(queries: ChartQuery[]): { data: (PromSeries | null)
   const [data, setData] = useState<(PromSeries | null)[]>([]);
   const [available, setAvailable] = useState<boolean | null>(null);
   const key = queries.map((q) => q.query).join("\n");
+  const epoch = useConnectionEpoch();
 
   useEffect(() => {
     let alive = true;
@@ -64,7 +68,7 @@ export function usePromRange(queries: ChartQuery[]): { data: (PromSeries | null)
       clearInterval(t);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [key]);
+  }, [key, epoch]);
 
   return { data, available };
 }

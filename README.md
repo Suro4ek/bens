@@ -180,6 +180,7 @@ Installers are written to `src-tauri/target/release/bundle/`.
 
 ```sh
 npx tsc --noEmit                                  # frontend types
+npm test                                          # frontend tests (Vitest)
 cargo test --manifest-path src-tauri/Cargo.toml   # backend tests
 ```
 

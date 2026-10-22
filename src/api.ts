@@ -140,6 +140,25 @@ export interface WatchOptions {
 
 export type ExecEvent = { type: "data"; data: string } | { type: "exit"; message?: string };
 
+/**
+ * Bumped on every connect and disconnect. Watches, metrics and charts key their
+ * subscriptions on it: the same resource key (say `/v1/namespaces`) means a
+ * different cluster after a switch, and the backend drops the old streams.
+ */
+let epoch = 0;
+const epochListeners = new Set<() => void>();
+export const connectionEpoch = {
+  get: () => epoch,
+  subscribe(listener: () => void) {
+    epochListeners.add(listener);
+    return () => void epochListeners.delete(listener);
+  },
+  bump() {
+    epoch++;
+    epochListeners.forEach((l) => l());
+  },
+};
+
 let seq = 0;
 export const newId = (prefix: string) => `${prefix}-${Date.now().toString(36)}-${++seq}`;
 
@@ -153,8 +172,12 @@ export const api = {
   readKubeconfig: (file: string) => invoke<string>("read_kubeconfig", { file }),
   writeKubeconfig: (file: string, yaml: string) => invoke<void>("write_kubeconfig", { file, yaml }),
   deleteContext: (file: string, context: string) => invoke<void>("delete_context", { file, context }),
-  connect: (ctx: ContextInfo) => invoke<Connection>("connect", { file: ctx.file, context: ctx.name }),
-  disconnect: () => invoke<void>("disconnect"),
+  connect: (ctx: ContextInfo) =>
+    invoke<Connection>("connect", { file: ctx.file, context: ctx.name }).then((c) => {
+      connectionEpoch.bump();
+      return c;
+    }),
+  disconnect: () => invoke<void>("disconnect").finally(connectionEpoch.bump),
 
   watch(key: string, namespace: string | null, onEvent: (e: WatchEvent) => void, opts: WatchOptions = {}) {
     const watchId = newId("watch");

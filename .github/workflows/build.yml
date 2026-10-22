@@ -39,6 +39,8 @@ jobs:
       - run: npm ci
       - name: Type-check the frontend
         run: npx tsc --noEmit
+      - name: Test the frontend
+        run: npm test
       - name: Build the frontend
         run: npm run build
       - name: Test the backend

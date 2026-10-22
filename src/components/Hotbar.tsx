@@ -7,14 +7,15 @@ interface Props {
   active?: string;
   connecting?: string;
   onPick: (ctx: ContextInfo) => void;
-  onSettings: (ctx: ContextInfo) => void;
+  /** Right click on a cluster: its menu (connect, reconnect, settings…). */
+  onClusterMenu: (ctx: ContextInfo, x: number, y: number) => void;
   onHome: () => void;
   onPreferences: () => void;
 }
 
 const SLOTS = 12;
 
-export function Hotbar({ contexts, active, connecting, onPick, onSettings, onHome, onPreferences }: Props) {
+export function Hotbar({ contexts, active, connecting, onPick, onClusterMenu, onHome, onPreferences }: Props) {
   const { clusters } = usePrefs();
   const shown = contexts.filter((c) => !clusters[c.id]?.hideFromHotbar || c.id === active);
   return (
@@ -29,11 +30,11 @@ export function Hotbar({ contexts, active, connecting, onPick, onSettings, onHom
             key={c.id}
             className={`hot ${p?.iconImage ? "img" : ""} ${c.id === active ? "active" : ""} ${c.id === connecting ? "pulse" : ""}`}
             style={p?.iconImage ? { backgroundImage: `url("${p.iconImage}")` } : { background: clusterColor(c, p) }}
-            title={`${clusterName(c, p)}\n${c.server ?? ""}\n${c.file}\n\nRight-click for settings`}
+            title={`${clusterName(c, p)}\n${c.server ?? ""}\n${c.file}\n\nRight-click for more`}
             onClick={() => onPick(c)}
             onContextMenu={(e) => {
               e.preventDefault();
-              onSettings(c);
+              onClusterMenu(c, e.clientX, e.clientY);
             }}
           >
             {!p?.iconImage && clusterIcon(c, p)}

@@ -23,7 +23,9 @@ import type { Column } from "./columns";
 import { allocatedInSlice, allocationMap, CLAIMS, SLICES } from "./dra";
 import { useWatch } from "./useWatch";
 import { storage } from "./util";
-import { clusterColor, clusterName, getAppPrefs, setActiveCluster, usePrefs } from "./prefs";
+import { clusterColor, clusterName, getAppPrefs, saveClusterPrefs, setActiveCluster, usePrefs } from "./prefs";
+import { clusterMenuItems } from "./clusterMenu";
+import { ContextMenu } from "./components/ObjectMenu";
 
 /** The catalog of clusters; available with or without a connection. */
 const CATALOG = "catalog";
@@ -59,6 +61,8 @@ export default function App() {
   const [palette, setPalette] = useState(false);
   const [toast, setToast] = useState<{ text: string; tone: "ok" | "bad" } | null>(null);
   /** Full-page settings shown over the current view (which stays mounted). */
+  const [clusterMenu, setClusterMenu] = useState<{ ctx: ContextInfo; x: number; y: number } | null>(null);
+  const openClusterMenu = useCallback((ctx: ContextInfo, x: number, y: number) => setClusterMenu({ ctx, x, y }), []);
   const [page, setPage] = useState<{ kind: "prefs" } | { kind: "cluster"; id: string; section?: string } | null>(null);
   const prefs = usePrefs();
   const clusterPrefs = activeId ? prefs.clusters[activeId] : undefined;
@@ -396,7 +400,7 @@ export default function App() {
             active={activeId}
             connecting={connecting}
             onPick={connect}
-            onSettings={(c) => setPage({ kind: "cluster", id: c.id })}
+            onClusterMenu={openClusterMenu}
             onHome={() => {
               setPage(null);
               navigate(CATALOG);
@@ -411,6 +415,7 @@ export default function App() {
             current={current}
             onConnect={connect}
             onSettings={(c) => setPage({ kind: "cluster", id: c.id })}
+            onClusterMenu={openClusterMenu}
             onPick={(id) => navigate(id)}
             onHome={() => navigate(CATALOG)}
             onSearch={() => setPalette(true)}
@@ -525,6 +530,45 @@ export default function App() {
             }}
             onChanged={refreshContexts}
             notify={notify}
+          />
+        )}
+        {clusterMenu && (
+          <ContextMenu
+            x={clusterMenu.x}
+            y={clusterMenu.y}
+            onClose={() => setClusterMenu(null)}
+            items={clusterMenuItems(
+              clusterMenu.ctx,
+              {
+                active: clusterMenu.ctx.id === activeId,
+                connecting: clusterMenu.ctx.id === connecting,
+                prefs: prefs.clusters[clusterMenu.ctx.id],
+              },
+              {
+                connect: (c) => {
+                  setPage(null);
+                  connect(c);
+                },
+                disconnect,
+                settings: (c) => setPage({ kind: "cluster", id: c.id }),
+                terminal: openTerminal,
+                setHotbar: (c, shown) =>
+                  saveClusterPrefs(c.id, { hideFromHotbar: !shown }).catch((e) => notify(String(e), "bad")),
+                copy: (text) => navigator.clipboard.writeText(text).then(() => notify(`Copied ${text}`)),
+                reveal: (path) => api.reveal(path).catch((e) => notify(String(e), "bad")),
+                remove: async (c) => {
+                  if (!confirm(`Remove context "${c.name}" from ${c.file}?\n\nA backup is kept as ${c.file}.bens-backup.`)) return;
+                  try {
+                    await api.deleteContext(c.file, c.name);
+                    notify(`Removed ${c.name}`);
+                    if (c.id === activeId) disconnect();
+                    else refreshContexts();
+                  } catch (e) {
+                    notify(String(e), "bad");
+                  }
+                },
+              },
+            )}
           />
         )}
         {palette && <CommandPalette commands={commands} onClose={() => setPalette(false)} />}
