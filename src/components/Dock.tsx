@@ -14,7 +14,7 @@ export type DockTab = { id: string; cluster: string; title: string } & (
   | { type: "logs"; source: LogsSource; container?: string }
   | { type: "shell"; pod?: KubeObject; node?: string; container?: string }
   | { type: "yaml"; resource: ResourceInfo; obj: KubeObject }
-  | { type: "create"; namespace: string | null }
+  | { type: "create"; namespace: string | null; initial?: string }
 );
 
 interface Props {
@@ -131,7 +131,7 @@ export function Dock({ tabs, active, onActivate, onClose, onCloseMany, onNewTerm
             {t.type === "logs" && <LogsView source={t.source} initialContainer={t.container} />}
             {t.type === "shell" && <ShellView pod={t.pod} node={t.node} container={t.container} active={t.id === active && open} />}
             {t.type === "yaml" && <YamlView resource={t.resource} obj={t.obj} />}
-            {t.type === "create" && <CreateView namespace={t.namespace} />}
+            {t.type === "create" && <CreateView namespace={t.namespace} initial={t.initial} />}
           </ClusterContext.Provider>
         </div>
       ))}

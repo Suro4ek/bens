@@ -316,12 +316,13 @@ export default function App() {
       openDock({ id: newId("tab"), cluster, type: "yaml", title: `${resource.kind}: ${obj.metadata.name}`, resource, obj }),
     openNodeShell: (node: KubeObject) =>
       openDock({ id: newId("tab"), cluster, type: "shell", title: `Node: ${node.metadata.name}`, node: node.metadata.name }),
+    openCreate: (yaml?: string) => openCreate(cluster, yaml),
   });
   const nsParamOf = (cluster: string) => (namespaces[cluster] && namespaces[cluster] !== ALL ? namespaces[cluster] : null);
   const openTerminal = (cluster = focusedCluster) =>
     cluster && openDock({ id: newId("tab"), cluster, type: "shell", title: "Terminal" });
-  const openCreate = (cluster = focusedCluster) =>
-    cluster && openDock({ id: newId("tab"), cluster, type: "create", title: "Create resource", namespace: nsParamOf(cluster) });
+  const openCreate = (cluster = focusedCluster, initial?: string) =>
+    cluster && openDock({ id: newId("tab"), cluster, type: "create", title: "Create resource", namespace: nsParamOf(cluster), initial });
 
   const pickNamespace = useCallback((cluster: string, ns: string) => {
     setNamespaces((n) => ({ ...n, [cluster]: ns }));

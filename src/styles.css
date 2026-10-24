@@ -315,7 +315,15 @@ button.status-item { background: none; padding: 0; color: var(--link); }
 .menu-item .strong { font-weight: 600; color: var(--text-strong); }
 
 /* ---------- Tables ---------- */
-.table-wrap { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.table-wrap { flex: 1; min-width: 0; display: flex; flex-direction: column; position: relative; }
+/* Round add / remove buttons at the bottom right of lists. */
+.list-fabs { position: absolute; right: 24px; bottom: 20px; display: flex; gap: 12px; z-index: 4; pointer-events: none; }
+.fab {
+  pointer-events: auto; width: 48px; height: 48px; border-radius: 50%; padding: 0; justify-content: center;
+  background: var(--accent); color: #fff; box-shadow: 0 4px 14px var(--shadow);
+}
+.fab:hover:not(:disabled) { filter: brightness(1.12); }
+.fab.danger { background: var(--bad); }
 .table-toolbar {
   display: flex; align-items: center; gap: 10px; padding: 8px 12px; border-bottom: 1px solid var(--border); flex: none;
 }
@@ -366,6 +374,21 @@ button.status-item { background: none; padding: 0; color: var(--link); }
 .hover-menu { position: relative; display: flex; }
 .hover-menu-list { position: absolute; top: 100%; right: 0; min-width: 200px; }
 .hover-menu-title { padding: 4px 10px 6px; font-size: 11px; text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted); }
+/* Create Secret / ConfigMap */
+.modal.create-dialog { width: min(760px, calc(100vw - 32px)); max-height: calc(100vh - 48px); }
+.create-body { display: flex; flex-direction: column; gap: 14px; overflow-y: auto; min-height: 0; padding-right: 4px; }
+.create-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 10px 14px; }
+.create-grid input, .create-grid select { width: 100%; }
+.kv { display: flex; flex-direction: column; gap: 6px; }
+.kv-head { display: flex; align-items: center; gap: 4px; color: var(--text-strong); font-weight: 500; }
+.kv-head span { margin-right: 4px; }
+.kv-row { display: grid; grid-template-columns: minmax(140px, 1fr) minmax(200px, 2fr) 28px 28px; gap: 6px; align-items: start; }
+.kv-row input, .kv-row textarea { width: 100%; min-width: 0; resize: vertical; }
+.kv-row textarea { min-height: 30px; }
+.kv-row input[readonly] { color: var(--muted); }
+.kv-file { display: flex; align-items: center; gap: 6px; min-width: 0; height: 30px; padding: 0 6px; border: 1px dashed var(--input-border); border-radius: 4px; }
+.kv-paste { display: flex; flex-direction: column; gap: 6px; }
+.kv-paste textarea { width: 100%; resize: vertical; }
 .scale-modal { width: min(380px, calc(100vw - 32px)); }
 
 .status { font-weight: 500; }

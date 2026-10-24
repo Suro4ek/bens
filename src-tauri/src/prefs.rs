@@ -191,6 +191,18 @@ pub fn load_icon_image(path: String) -> Result<String> {
     Ok(format!("data:{mime};base64,{}", base64::engine::general_purpose::STANDARD.encode(bytes)))
 }
 
+const MAX_VALUE_FILE_BYTES: u64 = 1024 * 1024;
+
+/// Reads a file the user picked for a ConfigMap or Secret value, base64-encoded (it may be binary).
+#[tauri::command]
+pub fn read_file_base64(path: String) -> Result<String> {
+    use base64::Engine;
+    if fs::metadata(&path).map_err(other)?.len() > MAX_VALUE_FILE_BYTES {
+        return Err(Error::Other("file is larger than 1 MiB (the Kubernetes object size limit)".into()));
+    }
+    Ok(base64::engine::general_purpose::STANDARD.encode(fs::read(&path).map_err(other)?))
+}
+
 /// Writes an export (CSV) to the file the user picked in the save dialog.
 #[tauri::command]
 pub fn save_text_file(path: String, contents: String) -> Result<()> {

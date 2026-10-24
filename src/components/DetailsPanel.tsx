@@ -25,6 +25,8 @@ export interface DockActions {
   openShell: (pod: KubeObject, container?: string) => void;
   openYaml: (resource: ResourceInfo, obj: KubeObject) => void;
   openNodeShell: (node: KubeObject) => void;
+  /** "Create resource" editor, optionally starting from a template. */
+  openCreate: (yaml?: string) => void;
   /** Logs of all pods of a workload (Deployment, StatefulSet, DaemonSet, ReplicaSet, Job). */
   openWorkloadLogs: (resource: ResourceInfo, obj: KubeObject) => void;
 }

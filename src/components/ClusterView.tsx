@@ -1,4 +1,4 @@
-import { useEffect, useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
 import type { Connection } from "../api";
 import { ClusterContext } from "../clusterContext";
@@ -9,6 +9,8 @@ import type { ClusterPrefs } from "../prefs";
 import { useMetrics } from "../useMetrics";
 import { useWatch } from "../useWatch";
 import { CostDashboard } from "./CostDashboard";
+import { CreateConfigMapDialog, CreateSecretDialog } from "./CreateDialogs";
+import { templateFor } from "../templates";
 import { DetailsPanel, DockActions } from "./DetailsPanel";
 import { ArgoDashboard, FluxDashboard } from "./GitOpsDashboards";
 import { HelmReleases } from "./HelmReleases";
@@ -90,6 +92,23 @@ function ClusterContent({
     return [{ title: "Allocated", value: (o) => allocatedInSlice(o, map), width: "90px" }];
   }, [view, claimsKey, claims.items, claims.error]);
 
+  // "+" on Secrets and ConfigMaps opens a form (Lens' "Create Secret"); on other lists, the editor with a template.
+  const [creating, setCreating] = useState<"/secrets" | "/configmaps" | null>(null);
+  const onCreate =
+    resource && (view === "/secrets" || view === "/configmaps")
+      ? () => setCreating(view)
+      : resource
+        ? () => actions.openCreate(templateFor(resource, nsParam))
+        : undefined;
+  const dialogProps = resource && {
+    resource,
+    namespace: nsParam,
+    namespaces: namespaceNames,
+    onClose: () => setCreating(null),
+    onCreated: (namespace: string, name: string) => onNavigate(view, undefined, { namespace, name }),
+    notify,
+  };
+
   const podMetrics = useMetrics("pods", nsParam, conn.metrics && view === "/pods");
   const nodeMetrics = useMetrics("nodes", null, conn.metrics && (view === "/nodes" || view === OVERVIEW));
 
@@ -116,8 +135,11 @@ function ClusterContent({
           onSelect={(o) => onSelect(o.metadata.uid)}
           notify={notify}
           actions={actions}
+          onCreate={onCreate}
         />
       )}
+      {creating === "/secrets" && dialogProps && <CreateSecretDialog {...dialogProps} />}
+      {creating === "/configmaps" && dialogProps && <CreateConfigMapDialog {...dialogProps} />}
       {resource &&
         selectedObj &&
         detailsSlot &&

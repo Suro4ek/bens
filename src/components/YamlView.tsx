@@ -79,9 +79,9 @@ data:
 `;
 
 /** Create or update objects from YAML (server-side apply; multiple documents allowed). */
-export function CreateView({ namespace }: { namespace: string | null }) {
+export function CreateView({ namespace, initial }: { namespace: string | null; initial?: string }) {
   const capi = useApi();
-  const [text, setText] = useState(TEMPLATE);
+  const [text, setText] = useState(initial ?? TEMPLATE);
   const [msg, setMsg] = useState<Msg>(null);
   const [busy, setBusy] = useState(false);
 

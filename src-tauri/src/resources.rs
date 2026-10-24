@@ -202,6 +202,30 @@ pub async fn get_metrics(
     Ok(api.list(&ListParams::default()).await?.items.into_iter().map(strip).collect())
 }
 
+/// Creates one object (`kubectl create`): unlike apply, fails if it already exists,
+/// so a form can never overwrite an existing Secret by accident.
+#[tauri::command]
+pub async fn create_resource(
+    state: State<'_, AppState>,
+    cluster: String,
+    key: String,
+    namespace: Option<String>,
+    object: serde_json::Value,
+) -> Result<serde_json::Value> {
+    let rt = state.resource(&cluster, &key)?;
+    let api = object_api(state.client(&cluster)?, &rt, namespace.as_deref());
+    let mut obj: DynamicObject = serde_json::from_value(object).map_err(|e| Error::Other(e.to_string()))?;
+    obj.types = Some(kube::api::TypeMeta { api_version: rt.api.api_version.clone(), kind: rt.api.kind.clone() });
+    if rt.namespaced {
+        obj.metadata.namespace = namespace.or(obj.metadata.namespace);
+    }
+    let created = api.create(&kube::api::PostParams::default(), &obj).await.map_err(|e| match e {
+        kube::Error::Api(s) if s.code == 409 => Error::Other(format!("{} {} already exists", rt.api.kind, obj.metadata.name.unwrap_or_default())),
+        e => Error::Kube(e),
+    })?;
+    serde_json::to_value(strip(created)).map_err(|e| Error::Other(e.to_string()))
+}
+
 /// `kubectl apply --server-side` for one or more YAML documents.
 #[tauri::command]
 pub async fn apply_manifest(

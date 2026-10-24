@@ -171,6 +171,8 @@ export const api = {
   addKubeconfigPath: (path: string) => invoke<void>("add_kubeconfig_path", { path }),
   removeKubeconfigSource: (path: string) => invoke<void>("remove_kubeconfig_source", { path }),
   saveTextFile: (path: string, contents: string) => invoke<void>("save_text_file", { path, contents }),
+  /** A file's contents, base64-encoded (for ConfigMap and Secret values). */
+  readFileBase64: (path: string) => invoke<string>("read_file_base64", { path }),
   loadIconImage: (path: string) => invoke<string>("load_icon_image", { path }),
   readKubeconfig: (file: string) => invoke<string>("read_kubeconfig", { file }),
   writeKubeconfig: (file: string, yaml: string) => invoke<void>("write_kubeconfig", { file, yaml }),
@@ -241,6 +243,9 @@ function makeClusterApi(cluster: string) {
     patch: (key: string, namespace: string | undefined, name: string, patch: unknown) =>
       call<void>("patch_resource", { key, namespace, name, patch }),
     applyManifest: (yaml: string, namespace: string | null) => call<string[]>("apply_manifest", { yaml, namespace }),
+    /** Creates an object; fails if it already exists. */
+    create: (key: string, namespace: string | undefined, object: unknown) =>
+      call<KubeObject>("create_resource", { key, namespace, object }),
 
     execStart: (
       sessionId: string,

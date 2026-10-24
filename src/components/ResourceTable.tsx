@@ -3,7 +3,7 @@ import { api, KubeObject, ResourceInfo } from "../api";
 import { Column, columnsFor } from "../columns";
 import type { WatchState } from "../useWatch";
 import { save as saveDialog } from "@tauri-apps/plugin-dialog";
-import { CaseSensitive, EllipsisVertical, FileDown, Regex, Search, Trash2, X } from "lucide-react";
+import { CaseSensitive, EllipsisVertical, FileDown, Minus, Plus, Regex, Search, Trash2, X } from "lucide-react";
 import { NamespaceSelect } from "./NamespaceSelect";
 import type { MetricsMap } from "../useMetrics";
 import type { DockActions } from "./DetailsPanel";
@@ -21,11 +21,13 @@ interface Props {
   onSelect: (o: KubeObject) => void;
   notify: (msg: string, tone?: "ok" | "bad") => void;
   actions: DockActions;
+  /** The round "+" at the bottom right of the list: create an object of this type. */
+  onCreate?: () => void;
 }
 
 const uidOf = (o: KubeObject) => o.metadata.uid ?? `${o.metadata.namespace}/${o.metadata.name}`;
 
-export function ResourceTable({ resource, watch, allNamespaces, metrics, extraColumns, selectedUid, onSelect, notify, actions }: Props) {
+export function ResourceTable({ resource, watch, allNamespaces, metrics, extraColumns, selectedUid, onSelect, notify, actions, onCreate }: Props) {
   const capi = useApi();
   const [menu, setMenu] = useState<{ x: number; y: number; obj: KubeObject } | null>(null);
   const [scaling, setScaling] = useState<KubeObject | null>(null);
@@ -249,6 +251,19 @@ export function ResourceTable({ resource, watch, allNamespaces, metrics, extraCo
             </div>
           ))}
         </div>
+      </div>
+      {/* Round buttons at the bottom right, like Lens: remove the checked rows, create a new object. */}
+      <div className="list-fabs">
+        {checkedRows.length > 0 && (
+          <button className="fab danger" onClick={deleteChecked} title={`Remove selected items (${checkedRows.length})`}>
+            <Minus size={22} />
+          </button>
+        )}
+        {onCreate && (
+          <button className="fab" onClick={onCreate} title={`Create new ${resource.kind}`}>
+            <Plus size={22} />
+          </button>
+        )}
       </div>
       {menu && (
         <ContextMenu
