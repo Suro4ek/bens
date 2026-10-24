@@ -13,6 +13,19 @@ document.addEventListener("contextmenu", (e) => {
   if (!editable && !selected) e.preventDefault();
 });
 
+// Text fields hold names, filters and values, not prose: no spell checking, autocorrection or
+// capitalization (macOS offered "Rpd" for "rpd" in a search box). A field can still opt in with its own attribute.
+document.addEventListener(
+  "focusin",
+  (e) => {
+    const field = e.target as HTMLElement;
+    if (!field.matches?.("textarea, input:not([type=checkbox]):not([type=radio])")) return;
+    for (const [name, value] of [["spellcheck", "false"], ["autocorrect", "off"], ["autocapitalize", "off"], ["autocomplete", "off"]])
+      if (!field.hasAttribute(name)) field.setAttribute(name, value);
+  },
+  true,
+);
+
 // Preferences (theme, start-up behavior) are needed before the first render.
 loadPrefs()
   .catch((e) => console.error("preferences:", e))
