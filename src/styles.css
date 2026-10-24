@@ -44,6 +44,11 @@
   --link: #55a6e2;
   --shadow: rgba(0, 0, 0, 0.45);
   --overlay: rgba(0, 0, 0, 0.7);
+  /* ANSI colors in logs: black, red, green, yellow, blue, magenta, cyan, white, then the bright ones. */
+  --ansi-0: #000000; --ansi-1: #cd3131; --ansi-2: #0dbc79; --ansi-3: #e5e510;
+  --ansi-4: #2472c8; --ansi-5: #bc3fbc; --ansi-6: #11a8cd; --ansi-7: #e5e5e5;
+  --ansi-8: #666666; --ansi-9: #f14c4c; --ansi-10: #23d18b; --ansi-11: #f5f543;
+  --ansi-12: #3b8eea; --ansi-13: #d670d6; --ansi-14: #29b8db; --ansi-15: #ffffff;
   --mono: ui-monospace, SFMono-Regular, Menlo, monospace;
   font-family: "Roboto", -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
   font-size: 13px;
@@ -92,6 +97,10 @@
   --link: #2b7bc0;
   --shadow: rgba(0, 0, 0, 0.18);
   --overlay: rgba(0, 0, 0, 0.45);
+  --ansi-0: #000000; --ansi-1: #cd3131; --ansi-2: #00bc00; --ansi-3: #949800;
+  --ansi-4: #0451a5; --ansi-5: #bc05bc; --ansi-6: #0598bc; --ansi-7: #555555;
+  --ansi-8: #666666; --ansi-9: #cd3131; --ansi-10: #14ce14; --ansi-11: #b5ba00;
+  --ansi-12: #0451a5; --ansi-13: #bc05bc; --ansi-14: #0598bc; --ansi-15: #a5a5a5;
   color-scheme: light;
 }
 

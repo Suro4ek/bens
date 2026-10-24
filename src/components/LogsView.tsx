@@ -1,5 +1,6 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { ArrowDownToLine, CaseSensitive, Check, ChevronDown, Clock, Copy, History, Regex, Search, Tag, WrapText, X } from "lucide-react";
+import { AnsiLine, escapeHtml as esc, lineHtml, matchRanges, parseAnsi } from "../ansi";
 import type { KubeObject, ResourceInfo } from "../api";
 import { containerBrick } from "../columns";
 import { useAppPrefs } from "../prefs";
@@ -14,11 +15,10 @@ export const ALL = "*";
 /** What a logs tab shows: one pod, or the pods of a workload (Deployment, StatefulSet, Job…). */
 export type LogsSource = { pod: KubeObject } | { workload: { resource: ResourceInfo; obj: KubeObject } };
 
-interface Line {
+interface Line extends AnsiLine {
   /** Milliseconds since the epoch, from the API server's timestamp; lines of all streams are merged by it. */
   t: number;
   ts: string;
-  text: string;
   /** Index of the stream (pod/container) in `streams`. */
   s: number;
 }
@@ -27,8 +27,6 @@ interface Stream {
   pod: string;
   container: string;
 }
-
-const esc = (s: string) => s.replace(/[&<>]/g, (c) => (c === "&" ? "&amp;" : c === "<" ? "&lt;" : "&gt;"));
 
 /** Stable color per stream name, for the `[pod/container]` prefixes. */
 const PREFIX_COLORS = ["#4fb3d9", "#e5a03c", "#7cc66f", "#d97ec4", "#a48ff0", "#e57373", "#4db6ac", "#c0ca33"];
@@ -198,7 +196,9 @@ export function LogsView({ source, initialContainer }: { source: LogsSource; ini
               const sp = raw.indexOf(" ");
               const ts = sp > 0 ? raw.slice(0, sp) : "";
               const t = Date.parse(ts);
-              pending.push(Number.isNaN(t) ? { t: pending.at(-1)?.t ?? 0, ts: "", text: raw, s } : { t, ts, text: raw.slice(sp + 1), s });
+              pending.push(
+                Number.isNaN(t) ? { t: pending.at(-1)?.t ?? 0, ts: "", s, ...parseAnsi(raw) } : { t, ts, s, ...parseAnsi(raw.slice(sp + 1)) },
+              );
             }
             frame ||= requestAnimationFrame(flush);
             setStates((x) => (x[s] === "streaming" ? x : { ...x, [s]: "streaming" }));
@@ -241,7 +241,7 @@ export function LogsView({ source, initialContainer }: { source: LogsSource; ini
     });
     return shown
       .map((l) => {
-        const text = matcher ? highlight(l.text, matcher) : esc(l.text);
+        const text = lineHtml(l, matcher ? matchRanges(l.text, matcher) : undefined);
         return (timestamps ? fmtTs(l) : "") + (showNames ? (prefixes[l.s] ?? "") : "") + text;
       })
       .join("\n");
@@ -367,16 +367,4 @@ export function LogsView({ source, initialContainer }: { source: LogsSource; ini
       </div>
     </div>
   );
-}
-
-function highlight(text: string, re: RegExp): string {
-  let out = "";
-  let last = 0;
-  re.lastIndex = 0;
-  for (const m of text.matchAll(re)) {
-    if (!m[0]) break;
-    out += esc(text.slice(last, m.index)) + `<mark>${esc(m[0])}</mark>`;
-    last = m.index! + m[0].length;
-  }
-  return out + esc(text.slice(last));
 }
