@@ -1,4 +1,4 @@
-import { api, KubeObject, ResourceInfo } from "./api";
+import { api, ClusterApi, KubeObject, ResourceInfo } from "./api";
 import { navId } from "./nav";
 
 // ---------- Flux ----------
@@ -62,13 +62,13 @@ export const fluxSource = (o: KubeObject): string => {
 export const fluxNeedsAttention = (o: KubeObject) => /^(Failed|Stalled)$/.test(fluxState(o));
 
 /** `flux reconcile`: bumps the requestedAt annotation. */
-export const fluxReconcile = (r: ResourceInfo, o: KubeObject) =>
-  api.patch(r.key, o.metadata.namespace, o.metadata.name, {
+export const fluxReconcile = (capi: ClusterApi, r: ResourceInfo, o: KubeObject) =>
+  capi.patch(r.key, o.metadata.namespace, o.metadata.name, {
     metadata: { annotations: { "reconcile.fluxcd.io/requestedAt": new Date().toISOString() } },
   });
 
-export const fluxSuspend = (r: ResourceInfo, o: KubeObject, suspend: boolean) =>
-  api.patch(r.key, o.metadata.namespace, o.metadata.name, { spec: { suspend } });
+export const fluxSuspend = (capi: ClusterApi, r: ResourceInfo, o: KubeObject, suspend: boolean) =>
+  capi.patch(r.key, o.metadata.namespace, o.metadata.name, { spec: { suspend } });
 
 /** Source object a Kustomization/HelmRelease reconciles from, for `--with-source`. */
 export function fluxSourceTarget(all: ResourceInfo[], o: KubeObject): { res: ResourceInfo; obj: KubeObject } | null {
@@ -109,22 +109,22 @@ export const argoNeedsAttention = (o: KubeObject) =>
   /^(Failed|Error)$/.test(argoOperation(o));
 
 /** Same operation Argo CD's UI/CLI writes; the application controller executes it. */
-export const argoSyncApp = (r: ResourceInfo, o: KubeObject, prune: boolean) =>
-  api.patch(r.key, o.metadata.namespace, o.metadata.name, {
+export const argoSyncApp = (capi: ClusterApi, r: ResourceInfo, o: KubeObject, prune: boolean) =>
+  capi.patch(r.key, o.metadata.namespace, o.metadata.name, {
     operation: {
       initiatedBy: { username: "bens" },
       sync: { revision: argoSource(o).targetRevision, prune, syncStrategy: { hook: {} } },
     },
   });
 
-export const argoRefresh = (r: ResourceInfo, o: KubeObject, hard: boolean) =>
-  api.patch(r.key, o.metadata.namespace, o.metadata.name, {
+export const argoRefresh = (capi: ClusterApi, r: ResourceInfo, o: KubeObject, hard: boolean) =>
+  capi.patch(r.key, o.metadata.namespace, o.metadata.name, {
     metadata: { annotations: { "argocd.argoproj.io/refresh": hard ? "hard" : "normal" } },
   });
 
 /** Port-forwards argocd-server (in the Application's namespace by default) and opens it. */
-export async function openArgoUi(namespace: string) {
-  const f = await api.portForwardStart("service", namespace, "argocd-server", 443);
+export async function openArgoUi(capi: ClusterApi, namespace: string) {
+  const f = await capi.portForwardStart("service", namespace, "argocd-server", 443);
   await api.openUrl(`https://localhost:${f.localPort}`);
   return f;
 }

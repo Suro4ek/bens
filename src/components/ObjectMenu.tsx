@@ -15,7 +15,8 @@ import {
   Trash2,
   Zap,
 } from "lucide-react";
-import { api, KubeObject, ResourceInfo } from "../api";
+import type { ClusterApi, KubeObject, ResourceInfo } from "../api";
+import { useApi } from "../clusterContext";
 import { Brick } from "../columns";
 import { argoRefresh, argoSyncApp, fluxReconcile, fluxSuspend, isFlux } from "../gitops";
 import type { DockActions } from "./DetailsPanel";
@@ -46,6 +47,8 @@ const SCALABLE = new Set(["apps/deployments", "apps/statefulsets", "apps/replica
 const RESTARTABLE = new Set(["apps/deployments", "apps/statefulsets", "apps/daemonsets"]);
 
 interface MenuContext {
+  /** API of the cluster the object is in. */
+  capi: ClusterApi;
   resource: ResourceInfo;
   actions: DockActions;
   notify: Notify;
@@ -61,7 +64,7 @@ const runner = (notify: Notify) => (done: string, f: () => Promise<unknown>) => 
   );
 
 /** Same Job `kubectl create job --from=cronjob/<name>` makes. */
-function triggerCronJob(obj: KubeObject) {
+function triggerCronJob(capi: ClusterApi, obj: KubeObject) {
   const name = `${obj.metadata.name}-manual-${Math.floor(Date.now() / 1000).toString(36)}`.slice(0, 63);
   const job = {
     apiVersion: "batch/v1",
@@ -75,7 +78,7 @@ function triggerCronJob(obj: KubeObject) {
     },
     spec: obj.spec?.jobTemplate?.spec,
   };
-  return api.applyManifest(JSON.stringify(job), obj.metadata.namespace ?? null).then(() => name);
+  return capi.applyManifest(JSON.stringify(job), obj.metadata.namespace ?? null).then(() => name);
 }
 
 /** A pod's containers with their status bricks, optionally led by an "all containers" entry. */
@@ -131,7 +134,7 @@ export function HoverMenu({
 }
 
 /** Object menu: the kind's own actions, then Edit and Delete. */
-export function objectMenuItems(obj: KubeObject, { resource, actions, notify, askScale }: MenuContext): MenuItem[] {
+export function objectMenuItems(obj: KubeObject, { capi, resource, actions, notify, askScale }: MenuContext): MenuItem[] {
   const id = `${resource.group}/${resource.plural}`;
   const ns = obj.metadata.namespace;
   const name = obj.metadata.name;
@@ -163,14 +166,14 @@ export function objectMenuItems(obj: KubeObject, { resource, actions, notify, as
           actions.openNodeShell(obj),
       },
       obj.spec?.unschedulable
-        ? { label: "Uncordon", icon: Play, run: run(`Uncordoned ${name}`, () => api.nodeCordon(name, false)) }
-        : { label: "Cordon", icon: Pause, run: run(`Cordoned ${name}`, () => api.nodeCordon(name, true)) },
+        ? { label: "Uncordon", icon: Play, run: run(`Uncordoned ${name}`, () => capi.nodeCordon(name, false)) }
+        : { label: "Cordon", icon: Pause, run: run(`Cordoned ${name}`, () => capi.nodeCordon(name, true)) },
       {
         label: "Drain",
         icon: ArrowDownToLine,
         run: () =>
           confirm(`Drain node ${name}? It will be cordoned and its pods evicted (DaemonSet pods are skipped).`) &&
-          api.nodeDrain(name).then(
+          capi.nodeDrain(name).then(
             (r) =>
               notify(
                 `Drain: ${r.evicted.length} evicted, ${r.skipped.length} skipped` +
@@ -188,7 +191,7 @@ export function objectMenuItems(obj: KubeObject, { resource, actions, notify, as
     items.push({
       label: "Restart",
       icon: RotateCw,
-      run: () => confirm(`Restart ${resource.kind} ${name}?`) && run(`Restart triggered for ${name}`, () => api.restart(resource.key, ns, name))(),
+      run: () => confirm(`Restart ${resource.kind} ${name}?`) && run(`Restart triggered for ${name}`, () => capi.restart(resource.key, ns, name))(),
     });
   }
   if (id === "batch/cronjobs") {
@@ -197,28 +200,28 @@ export function objectMenuItems(obj: KubeObject, { resource, actions, notify, as
         label: "Trigger",
         icon: Zap,
         run: () =>
-          triggerCronJob(obj).then(
+          triggerCronJob(capi, obj).then(
             (job) => notify(`Created job ${job}`),
             (e) => notify(String(e), "bad"),
           ),
       },
       obj.spec?.suspend
-        ? { label: "Resume", icon: Play, run: run(`Resumed ${name}`, () => api.patch(resource.key, ns, name, { spec: { suspend: false } })) }
-        : { label: "Suspend", icon: Pause, run: run(`Suspended ${name}`, () => api.patch(resource.key, ns, name, { spec: { suspend: true } })) },
+        ? { label: "Resume", icon: Play, run: run(`Resumed ${name}`, () => capi.patch(resource.key, ns, name, { spec: { suspend: false } })) }
+        : { label: "Suspend", icon: Pause, run: run(`Suspended ${name}`, () => capi.patch(resource.key, ns, name, { spec: { suspend: true } })) },
     );
   }
   if (isFlux(resource) && obj.spec) {
     items.push(
-      { label: "Reconcile", icon: RefreshCw, run: run(`Reconcile requested for ${name}`, () => fluxReconcile(resource, obj)) },
+      { label: "Reconcile", icon: RefreshCw, run: run(`Reconcile requested for ${name}`, () => fluxReconcile(capi, resource, obj)) },
       obj.spec.suspend
-        ? { label: "Resume", icon: Play, run: run(`Resumed ${name}`, () => fluxSuspend(resource, obj, false)) }
-        : { label: "Suspend", icon: Pause, run: run(`Suspended ${name}`, () => fluxSuspend(resource, obj, true)) },
+        ? { label: "Resume", icon: Play, run: run(`Resumed ${name}`, () => fluxSuspend(capi, resource, obj, false)) }
+        : { label: "Suspend", icon: Pause, run: run(`Suspended ${name}`, () => fluxSuspend(capi, resource, obj, true)) },
     );
   }
   if (id === "argoproj.io/applications") {
     items.push(
-      { label: "Sync", icon: RefreshCw, run: run(`Sync started for ${name}`, () => argoSyncApp(resource, obj, false)) },
-      { label: "Refresh", icon: RotateCw, run: run(`Refresh requested for ${name}`, () => argoRefresh(resource, obj, false)) },
+      { label: "Sync", icon: RefreshCw, run: run(`Sync started for ${name}`, () => argoSyncApp(capi, resource, obj, false)) },
+      { label: "Refresh", icon: RotateCw, run: run(`Refresh requested for ${name}`, () => argoRefresh(capi, resource, obj, false)) },
     );
   }
 
@@ -229,7 +232,7 @@ export function objectMenuItems(obj: KubeObject, { resource, actions, notify, as
       label: "Delete",
       icon: Trash2,
       danger: true,
-      run: () => confirm(`Delete ${resource.kind} ${name}?`) && run(`Deleted ${name}`, () => api.delete(resource.key, ns, name))(),
+      run: () => confirm(`Delete ${resource.kind} ${name}?`) && run(`Deleted ${name}`, () => capi.delete(resource.key, ns, name))(),
     },
   );
   return items;
@@ -320,12 +323,13 @@ export function ScaleDialog({
   onClose: () => void;
   notify: Notify;
 }) {
+  const capi = useApi();
   const current = obj.spec?.replicas ?? 0;
   const [replicas, setReplicas] = useState<number>(current);
   const [busy, setBusy] = useState(false);
   const apply = () => {
     setBusy(true);
-    api.scale(resource.key, obj.metadata.namespace, obj.metadata.name, replicas).then(
+    capi.scale(resource.key, obj.metadata.namespace, obj.metadata.name, replicas).then(
       () => {
         notify(`Scaled ${obj.metadata.name} to ${replicas}`);
         onClose();

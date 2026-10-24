@@ -1,8 +1,6 @@
-import { useEffect, useState, useSyncExternalStore } from "react";
-import { api, connectionEpoch, KubeObject, WatchOptions } from "./api";
-
-/** Changes whenever the app connects to (or disconnects from) a cluster. */
-export const useConnectionEpoch = () => useSyncExternalStore(connectionEpoch.subscribe, connectionEpoch.get);
+import { useEffect, useState } from "react";
+import type { KubeObject, WatchOptions } from "./api";
+import { useApi, useConnectionEpoch } from "./clusterContext";
 
 const objKey = (o: KubeObject) => o.metadata.uid ?? `${o.metadata.namespace}/${o.metadata.name}`;
 
@@ -16,6 +14,7 @@ export interface WatchState {
 export function useWatch(key: string | undefined, namespace: string | null, opts: WatchOptions = {}): WatchState {
   const { labelSelector, fieldSelector } = opts;
   const [state, setState] = useState<WatchState>({ items: [], loading: true });
+  const api = useApi();
   const epoch = useConnectionEpoch();
 
   useEffect(() => {
@@ -63,7 +62,7 @@ export function useWatch(key: string | undefined, namespace: string | null, opts
       stop();
       if (frame) cancelAnimationFrame(frame);
     };
-  }, [key, namespace, labelSelector, fieldSelector, epoch]);
+  }, [api, key, namespace, labelSelector, fieldSelector, epoch]);
 
   return state;
 }
@@ -72,6 +71,7 @@ export function useWatch(key: string | undefined, namespace: string | null, opts
 export function useWatchMany(keys: string[], namespace: string | null): Record<string, WatchState> {
   const [state, setState] = useState<Record<string, WatchState>>({});
   const joined = keys.join("|");
+  const api = useApi();
   const epoch = useConnectionEpoch();
 
   useEffect(() => {
@@ -111,7 +111,7 @@ export function useWatchMany(keys: string[], namespace: string | null): Record<s
       if (frame) cancelAnimationFrame(frame);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [joined, namespace, epoch]);
+  }, [api, joined, namespace, epoch]);
 
   return state;
 }

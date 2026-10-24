@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { api, HelmDetails, HelmRelease } from "../api";
+import type { HelmDetails, HelmRelease } from "../api";
 import { Status } from "../columns";
 import { age } from "../util";
 import { CodeEditor } from "./CodeEditor";
 import { InstallChart } from "./InstallChart";
 import { NamespaceSelect } from "./NamespaceSelect";
+import { useApi } from "../clusterContext";
 
 const POLL_MS = 15_000;
 const relKey = (r: HelmRelease) => `${r.namespace}/${r.name}`;
@@ -16,6 +17,7 @@ interface Props {
 }
 
 export function HelmReleases({ namespace, notify }: Props) {
+  const capi = useApi();
   const [releases, setReleases] = useState<HelmRelease[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string>();
@@ -25,7 +27,7 @@ export function HelmReleases({ namespace, notify }: Props) {
 
   const load = useCallback(
     () =>
-      api
+      capi
         .helmList(namespace)
         .then((r) => {
           setReleases(r);
@@ -136,12 +138,13 @@ function ReleaseDetails({
   onChanged: () => void;
   notify: Props["notify"];
 }) {
+  const capi = useApi();
   const [details, setDetails] = useState<HelmDetails>();
   const [tab, setTab] = useState<Tab>("values");
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
-    api
+    capi
       .helmGet(release.namespace, release.name)
       .then(setDetails)
       .catch((e) => notify(String(e), "bad"));
@@ -198,7 +201,7 @@ function ReleaseDetails({
           disabled={busy}
           onClick={() =>
             confirm(`Uninstall release ${release.name} from ${release.namespace}? This deletes its resources.`) &&
-            run("Uninstalled", () => api.helmUninstall(release.namespace, release.name)).then(onClose)
+            run("Uninstalled", () => capi.helmUninstall(release.namespace, release.name)).then(onClose)
           }
         >
           Uninstall
@@ -232,7 +235,7 @@ function ReleaseDetails({
                   disabled={busy}
                   onClick={() =>
                     confirm(`Roll back ${release.name} to revision ${h.revision}?`) &&
-                    run(`Rolled back to #${h.revision}`, () => api.helmRollback(release.namespace, release.name, h.revision))
+                    run(`Rolled back to #${h.revision}`, () => capi.helmRollback(release.namespace, release.name, h.revision))
                   }
                 >
                   Rollback

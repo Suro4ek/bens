@@ -10,6 +10,7 @@ import { ArgoAppDetails, FluxActions, NodeCharts, PodCharts, SecretData } from "
 import { isFlux } from "../gitops";
 import { containerItems, HoverMenu, LOG_WORKLOADS } from "./ObjectMenu";
 import { CLAIM_TEMPLATES, CLAIMS, DEVICE_CLASSES, SLICES } from "../dra";
+import { useApi } from "../clusterContext";
 import {
   DeviceClassDetails,
   NodeDevices,
@@ -297,12 +298,13 @@ function Ports({
   ports: { port: number; name?: string; protocol?: string }[];
   notify: Props["notify"];
 }) {
-  const forwards = useForwards();
+  const capi = useApi();
+  const forwards = useForwards(capi.cluster);
   if (!ports.length) return null;
   const { namespace, name } = obj.metadata;
   const start = async (port: number) => {
     try {
-      const f = await api.portForwardStart(kind, namespace!, name, port);
+      const f = await capi.portForwardStart(kind, namespace!, name, port);
       forwardsChanged();
       notify(`Forwarding ${forwardUrl(f)} → ${name}:${port}`);
     } catch (e) {
@@ -313,7 +315,7 @@ function Ports({
     <section>
       <h4>Ports</h4>
       {ports.map((p) => {
-        const f = forwards.find((x) => x.id === `${kind}/${namespace}/${name}:${p.port}`);
+        const f = forwards.find((x) => x.kind === kind && x.namespace === namespace && x.name === name && x.remotePort === p.port);
         return (
           <div key={`${p.port}/${p.protocol}`} className="event-row">
             <span className="mono grow">
@@ -408,6 +410,7 @@ function ObjectEvents({ resources, obj }: { resources: ResourceInfo[]; obj: Kube
 }
 
 export function DetailsPanel({ resource, resources, obj, onClose, onNavigate, notify, ...actions }: Props) {
+  const capi = useApi();
   const id = `${resource.group}/${resource.plural}`;
   const [replicas, setReplicas] = useState<number>(obj.spec?.replicas ?? 0);
   const [busy, setBusy] = useState(false);
@@ -429,7 +432,7 @@ export function DetailsPanel({ resource, resources, obj, onClose, onNavigate, no
 
   const remove = () => {
     if (!confirm(`Delete ${resource.kind} ${obj.metadata.name}?`)) return;
-    run(`Deleted ${obj.metadata.name}`, () => api.delete(resource.key, ns, obj.metadata.name)).then(onClose);
+    run(`Deleted ${obj.metadata.name}`, () => capi.delete(resource.key, ns, obj.metadata.name)).then(onClose);
   };
 
   return (
@@ -492,18 +495,18 @@ export function DetailsPanel({ resource, resources, obj, onClose, onNavigate, no
               className="icon"
               title="Restart"
               disabled={busy}
-              onClick={() => run("Restart triggered", () => api.restart(resource.key, ns, obj.metadata.name))}
+              onClick={() => run("Restart triggered", () => capi.restart(resource.key, ns, obj.metadata.name))}
             >
               <RotateCw size={16} />
             </button>
           )}
           {id === "/nodes" &&
             (obj.spec?.unschedulable ? (
-              <button className="icon" title="Uncordon" disabled={busy} onClick={() => run("Uncordoned", () => api.nodeCordon(obj.metadata.name, false))}>
+              <button className="icon" title="Uncordon" disabled={busy} onClick={() => run("Uncordoned", () => capi.nodeCordon(obj.metadata.name, false))}>
                 <Play size={16} />
               </button>
             ) : (
-              <button className="icon" title="Cordon" disabled={busy} onClick={() => run("Cordoned", () => api.nodeCordon(obj.metadata.name, true))}>
+              <button className="icon" title="Cordon" disabled={busy} onClick={() => run("Cordoned", () => capi.nodeCordon(obj.metadata.name, true))}>
                 <Pause size={16} />
               </button>
             ))}
@@ -516,7 +519,7 @@ export function DetailsPanel({ resource, resources, obj, onClose, onNavigate, no
                 if (!confirm(`Drain node ${obj.metadata.name}? It will be cordoned and its pods evicted (DaemonSet pods are skipped).`))
                   return;
                 setBusy(true);
-                api
+                capi
                   .nodeDrain(obj.metadata.name)
                   .then((r) =>
                     notify(
@@ -562,7 +565,7 @@ export function DetailsPanel({ resource, resources, obj, onClose, onNavigate, no
               className="primary"
               disabled={busy || replicas === obj.spec?.replicas}
               onClick={() =>
-                run(`Scaled to ${replicas}`, () => api.scale(resource.key, ns, obj.metadata.name, replicas))
+                run(`Scaled to ${replicas}`, () => capi.scale(resource.key, ns, obj.metadata.name, replicas))
               }
             >
               Apply

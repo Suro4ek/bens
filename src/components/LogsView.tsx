@@ -1,9 +1,10 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { ArrowDownToLine, CaseSensitive, Check, ChevronDown, Clock, Copy, History, Regex, Search, Tag, WrapText, X } from "lucide-react";
-import { api, KubeObject, ResourceInfo } from "../api";
+import type { KubeObject, ResourceInfo } from "../api";
 import { containerBrick } from "../columns";
 import { useAppPrefs } from "../prefs";
 import { useWatch } from "../useWatch";
+import { useApi } from "../clusterContext";
 
 const MAX_LINES = 20_000;
 const PODS_KEY = "/v1/pods";
@@ -125,6 +126,7 @@ const ContainerDot = ({ pod, name }: { pod: KubeObject; name: string }) => {
 };
 
 export function LogsView({ source, initialContainer }: { source: LogsSource; initialContainer?: string }) {
+  const capi = useApi();
   const single = "pod" in source ? source.pod : undefined;
   const workload = "workload" in source ? source.workload.obj : undefined;
   const namespace = (single ?? workload)!.metadata.namespace!;
@@ -188,7 +190,7 @@ export function LogsView({ source, initialContainer }: { source: LogsSource; ini
       });
     };
     const stops = streams.map((st, s) =>
-      api.logs(
+      capi.logs(
         { namespace, pod: st.pod, container: st.container, tailLines, previous, timestamps: true },
         (e) => {
           if (e.type === "lines") {

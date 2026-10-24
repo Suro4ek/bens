@@ -19,6 +19,7 @@ import { useWatchMany } from "../useWatch";
 import { age } from "../util";
 import { forwardsChanged } from "./PortForwards";
 import { NamespaceSelect } from "./NamespaceSelect";
+import { useApi } from "../clusterContext";
 
 interface Props {
   conn: Connection;
@@ -150,6 +151,7 @@ function ObjRow({
 }
 
 export function ArgoDashboard({ conn, namespace, onNavigate, notify }: Props) {
+  const capi = useApi();
   const kinds = argoResources(conn.resources);
   const appRes = kinds.find((k) => k.plural === "applications");
   const data = useWatchMany(appRes ? [appRes.key] : [], namespace);
@@ -173,7 +175,7 @@ export function ArgoDashboard({ conn, namespace, onNavigate, notify }: Props) {
           onClick={async () => {
             setBusy(true);
             try {
-              await openArgoUi(argoNs);
+              await openArgoUi(capi, argoNs);
               forwardsChanged();
             } catch (e) {
               notify(String(e), "bad");

@@ -1,7 +1,7 @@
 //! Cost monitoring: figures from OpenCost or Kubecost when the
 //! cluster runs one, otherwise estimated from Prometheus usage and node sizes.
 
-import { api, KubeObject, PromSeries } from "./api";
+import type { ClusterApi, KubeObject, PromSeries } from "./api";
 import type { ClusterPrefs } from "./prefs";
 import { parseQuantity } from "./util";
 
@@ -105,7 +105,7 @@ export const ESTIMATE_NOTE =
 const message = (e: unknown) => (e instanceof Error ? e.message : String(e));
 
 /** Whether Prometheus has kube-state-metrics' request series — the one thing the estimate cannot do without. */
-async function detectEstimate(): Promise<string | { why: string }> {
+async function detectEstimate(api: ClusterApi): Promise<string | { why: string }> {
   const prom = await api.prometheusDetect();
   if (!prom) return { why: "Prometheus not found" };
   const end = Math.floor(Date.now() / 1000);
@@ -114,7 +114,7 @@ async function detectEstimate(): Promise<string | { why: string }> {
 }
 
 /** Finds the cluster's cost source per its settings: the first available in order, or the one chosen. */
-export async function detectCostSource(prefs: ClusterPrefs): Promise<Detection> {
+export async function detectCostSource(api: ClusterApi, prefs: ClusterPrefs): Promise<Detection> {
   const pref = prefs.costSource ?? "auto";
   const all: CostSourceId[] = ["kubecost", "opencost", "estimated"];
   const notAsked = (id: CostSourceId): Candidate => ({ id, name: SOURCE_NAMES[id], outcome: "not-asked" });
@@ -130,7 +130,7 @@ export async function detectCostSource(prefs: ClusterPrefs): Promise<Detection> 
   const results = await Promise.all(
     asked.map(async (id): Promise<[CostSourceId, string | { why: string } | Error]> => {
       try {
-        if (id === "estimated") return [id, await detectEstimate()];
+        if (id === "estimated") return [id, await detectEstimate(api)];
         const b = BACKENDS.find((x) => x.id === id)!;
         return [id, (await api.costFindService(b.selectors, b.port)) ?? { why: "not installed" }];
       } catch (e) {
@@ -267,7 +267,7 @@ export function normalizeTrend(response: unknown, window: CostWindow): CostTrend
   };
 }
 
-export async function fetchBackendAllocation(source: CostSource, window: CostWindow): Promise<CostAllocation> {
+export async function fetchBackendAllocation(api: ClusterApi, source: CostSource, window: CostWindow): Promise<CostAllocation> {
   const b = BACKENDS.find((x) => x.id === source.id)!;
   const [byNs, byCluster] = await Promise.allSettled([
     api.serviceProxyGet(source.handle, b.path, { window, aggregate: "namespace", accumulate: "true", includeIdle: "true" }),
@@ -280,7 +280,7 @@ export async function fetchBackendAllocation(source: CostSource, window: CostWin
   return allocation;
 }
 
-export async function fetchBackendTrend(source: CostSource, window: CostWindow): Promise<CostTrend> {
+export async function fetchBackendTrend(api: ClusterApi, source: CostSource, window: CostWindow): Promise<CostTrend> {
   const b = BACKENDS.find((x) => x.id === source.id)!;
   const res = await api.serviceProxyGet(source.handle, b.path, {
     window,
@@ -358,9 +358,9 @@ const observationCache = new Map<string, { end: number; data: Promise<Observatio
 export const resetCostCache = () => observationCache.clear();
 
 /** Reads usage for a window from Prometheus; kept while the aligned range stays the same. */
-export function loadObservations(clusterId: string, window: CostWindow): Promise<Observations> {
+export function loadObservations(api: ClusterApi, window: CostWindow): Promise<Observations> {
   const range = rangeFor(window, Date.now());
-  const key = `${clusterId}|${window}`;
+  const key = `${api.cluster}|${window}`;
   const kept = observationCache.get(key);
   if (kept && kept.end === range.end) return kept.data;
   const step = stepFor[window];

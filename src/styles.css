@@ -209,6 +209,12 @@ button.status-item { background: none; padding: 0; color: var(--link); }
 .hot.home:hover { color: var(--text-strong); background: var(--hover); }
 .hot.active { border-color: var(--text-strong); }
 .hot.pulse { animation: pulse 1s infinite alternate; }
+/* Connected clusters get a green dot in the corner, like the Navigator. */
+.hot.connected { position: relative; }
+.hot.connected::after {
+  content: ""; position: absolute; right: -3px; bottom: -3px; width: 9px; height: 9px; border-radius: 50%;
+  background: var(--ok); box-shadow: 0 0 0 2px var(--hotbar, var(--bg));
+}
 .hot.slot { background: var(--hot-empty); box-shadow: none; cursor: default; }
 .hot.img { background-size: cover; background-position: center; }
 .hotbar .spacer { flex: 1; }
@@ -241,6 +247,7 @@ button.status-item { background: none; padding: 0; color: var(--link); }
 .tree-row.active .tree-icon { color: var(--text-strong); }
 .tree-label { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .tree-row.cluster.connected .tree-label { color: var(--text-strong); }
+.tree-row.cluster.focused .tree-label { font-weight: 600; }
 .tree-row .row-action { opacity: 0; padding: 2px; }
 .tree-row:hover .row-action { opacity: 1; }
 .tree-empty { padding: 6px 30px; }
@@ -285,6 +292,8 @@ button.status-item { background: none; padding: 0; color: var(--link); }
 .main-tab:hover .tab-close, .main-tab.active .tab-close { opacity: 1; }
 .main-body { flex: 1; min-height: 0; display: flex; }
 .main-left { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+/* Holds the details panel of the active cluster's view (rendered there through a portal). */
+.details-slot { display: contents; }
 .content { flex: 1; min-height: 0; display: flex; position: relative; }
 .main-left:has(.dock.maximized) .content { display: none; }
 .empty-view { flex: 1; display: grid; place-items: center; }

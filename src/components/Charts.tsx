@@ -1,29 +1,33 @@
 import { useEffect, useState } from "react";
-import { api, PromSeries } from "../api";
-import { useActiveClusterPrefs } from "../prefs";
-import { useConnectionEpoch } from "../useWatch";
+import type { ClusterApi, PromSeries } from "../api";
+import { useApi, useClusterPrefs, useConnectionEpoch } from "../clusterContext";
 
 const RANGE_S = 60 * 60; // last hour
 const STEP_S = 60;
 const POLL_MS = 60_000;
 
-/** Whether Prometheus was found in the cluster; checked once per connection. */
-let promAvailable: Promise<boolean> | null = null;
-export const resetPrometheus = () => (promAvailable = null);
-const hasPrometheus = () => (promAvailable ??= api.prometheusDetect().then((s) => !!s, () => false));
+/** Whether Prometheus was found, per cluster; checked once per connection. */
+const promAvailable = new Map<string, Promise<boolean>>();
+export const resetPrometheus = (cluster: string) => promAvailable.delete(cluster);
+function hasPrometheus(api: ClusterApi) {
+  let p = promAvailable.get(api.cluster);
+  if (!p) promAvailable.set(api.cluster, (p = api.prometheusDetect().then((s) => !!s, () => false)));
+  return p;
+}
 
 /** Whether Prometheus charts can be shown (null while checking). */
 export function usePrometheusAvailable(): boolean | null {
   const [available, setAvailable] = useState<boolean | null>(null);
+  const api = useApi();
   const epoch = useConnectionEpoch();
   useEffect(() => {
     let alive = true;
     setAvailable(null);
-    hasPrometheus().then((v) => alive && setAvailable(v));
+    hasPrometheus(api).then((v) => alive && setAvailable(v));
     return () => {
       alive = false;
     };
-  }, [epoch]);
+  }, [api, epoch]);
   return available;
 }
 
@@ -38,12 +42,13 @@ export function usePromRange(queries: ChartQuery[]): { data: (PromSeries | null)
   const [data, setData] = useState<(PromSeries | null)[]>([]);
   const [available, setAvailable] = useState<boolean | null>(null);
   const key = queries.map((q) => q.query).join("\n");
+  const api = useApi();
   const epoch = useConnectionEpoch();
 
   useEffect(() => {
     let alive = true;
     const load = async () => {
-      if (!(await hasPrometheus())) {
+      if (!(await hasPrometheus(api))) {
         if (alive) setAvailable(false);
         return;
       }
@@ -68,14 +73,14 @@ export function usePromRange(queries: ChartQuery[]): { data: (PromSeries | null)
       clearInterval(t);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [key, epoch]);
+  }, [api, key, epoch]);
 
   return { data, available };
 }
 
 /** Chart groups that can be hidden in cluster settings. */
 export type MetricsGroup = "cluster" | "node" | "pod";
-export const useMetricsHidden = (group: MetricsGroup) => !!useActiveClusterPrefs().hiddenMetrics?.includes(group);
+export const useMetricsHidden = (group: MetricsGroup) => !!useClusterPrefs().hiddenMetrics?.includes(group);
 
 interface ChartProps {
   title: string;

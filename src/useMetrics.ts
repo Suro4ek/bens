@@ -1,6 +1,5 @@
 import { useEffect, useState } from "react";
-import { api } from "./api";
-import { useConnectionEpoch } from "./useWatch";
+import { useApi, useConnectionEpoch } from "./clusterContext";
 import { parseQuantity } from "./util";
 
 export interface Usage {
@@ -18,6 +17,7 @@ export const metricsKey = (name: string, namespace?: string) => (namespace ? `${
 /** Polls metrics-server. Returns null while unavailable. */
 export function useMetrics(scope: "pods" | "nodes", namespace: string | null, enabled: boolean): MetricsMap | null {
   const [map, setMap] = useState<MetricsMap | null>(null);
+  const api = useApi();
   const epoch = useConnectionEpoch();
 
   useEffect(() => {
@@ -50,7 +50,7 @@ export function useMetrics(scope: "pods" | "nodes", namespace: string | null, en
       alive = false;
       clearInterval(t);
     };
-  }, [scope, namespace, enabled, epoch]);
+  }, [api, scope, namespace, enabled, epoch]);
 
   return map;
 }

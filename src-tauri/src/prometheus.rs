@@ -59,8 +59,8 @@ async fn detect(client: &kube::Client) -> Result<Option<PromService>> {
 }
 
 /// Prometheus service per the cluster settings: auto-detected, set manually, or off.
-async fn resolve(state: &AppState, client: &kube::Client) -> Result<Option<PromService>> {
-    let prefs = state.0.lock().unwrap().prefs.clone();
+async fn resolve(state: &AppState, cluster: &str, client: &kube::Client) -> Result<Option<PromService>> {
+    let prefs = state.prefs(cluster)?;
     let prefix = prefs.prometheus_prefix.unwrap_or_default().trim().trim_end_matches('/').to_string();
     let prefix = if prefix.is_empty() || prefix.starts_with('/') { prefix } else { format!("/{prefix}") };
     let found = match prefs.prometheus_mode.as_deref() {
@@ -72,14 +72,14 @@ async fn resolve(state: &AppState, client: &kube::Client) -> Result<Option<PromS
         _ => detect(client).await?,
     };
     let found = found.map(|s| PromService { prefix: prefix.clone(), ..s });
-    state.0.lock().unwrap().prometheus = found.clone();
+    state.with_cluster(cluster, |c| c.prometheus = found.clone())?;
     Ok(found)
 }
 
 #[tauri::command]
-pub async fn prometheus_detect(state: State<'_, AppState>) -> Result<Option<PromService>> {
-    let client = state.client()?;
-    resolve(&state, &client).await
+pub async fn prometheus_detect(state: State<'_, AppState>, cluster: String) -> Result<Option<PromService>> {
+    let client = state.client(&cluster)?;
+    resolve(&state, &cluster, &client).await
 }
 
 fn enc(s: &str) -> String {
@@ -94,16 +94,17 @@ fn enc(s: &str) -> String {
 #[tauri::command]
 pub async fn prometheus_query_range(
     state: State<'_, AppState>,
+    cluster: String,
     query: String,
     start: f64,
     end: f64,
     step: f64,
 ) -> Result<Vec<Series>> {
-    let client = state.client()?;
-    let svc = state.0.lock().unwrap().prometheus.clone();
+    let client = state.client(&cluster)?;
+    let svc = state.with_cluster(&cluster, |c| c.prometheus.clone())?;
     let svc = match svc {
         Some(s) => s,
-        None => resolve(&state, &client).await?.ok_or_else(|| Error::Other("Prometheus not found".into()))?,
+        None => resolve(&state, &cluster, &client).await?.ok_or_else(|| Error::Other("Prometheus not found".into()))?,
     };
     let path = format!(
         "/api/v1/namespaces/{}/services/{}:{}/proxy{}/api/v1/query_range?query={}&start={start}&end={end}&step={step}",

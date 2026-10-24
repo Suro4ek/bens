@@ -44,7 +44,7 @@ describe("cluster menu", () => {
     items.find((i) => i.label === "Reconnect")!.run!();
     expect(a.connect).toHaveBeenCalledWith(ctx);
     items.find((i) => i.label === "Disconnect")!.run!();
-    expect(a.disconnect).toHaveBeenCalled();
+    expect(a.disconnect).toHaveBeenCalledWith(ctx);
   });
 
   it("toggles the hotbar and hides folder actions for pasted kubeconfigs", () => {

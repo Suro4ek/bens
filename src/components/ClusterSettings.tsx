@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { api, ContextInfo } from "../api";
+import { api, clusterApi, ContextInfo } from "../api";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import { clusterColor, clusterName, ClusterPrefs, initials, saveClusterPrefs, usePrefs } from "../prefs";
 import { ClusterIcon } from "./ClusterIcon";
@@ -210,12 +210,12 @@ export function ClusterSettings({ ctx, connected, initial, onClose, onReconnect,
     {
       id: "metrics",
       label: "Metrics",
-      content: <MetricsSettings prefs={prefs} save={save} connected={connected} />,
+      content: <MetricsSettings cluster={ctx.id} prefs={prefs} save={save} connected={connected} />,
     },
     {
       id: "cost",
       label: "Cost",
-      content: <CostSettings prefs={prefs} save={save} connected={connected} />,
+      content: <CostSettings cluster={ctx.id} prefs={prefs} save={save} connected={connected} />,
     },
     {
       id: "node-shell",
@@ -318,10 +318,12 @@ function KubeconfigBlock({
 }
 
 function MetricsSettings({
+  cluster,
   prefs,
   save,
   connected,
 }: {
+  cluster: string;
   prefs: ClusterPrefs;
   save: (p: Partial<ClusterPrefs>, msg?: string) => Promise<void>;
   connected: boolean;
@@ -330,16 +332,16 @@ function MetricsSettings({
   const [detected, setDetected] = useState<string>();
   const hidden = prefs.hiddenMetrics ?? [];
 
-  const savePrometheus = (patch: Partial<ClusterPrefs>) => save(patch).then(() => resetPrometheus());
+  const savePrometheus = (patch: Partial<ClusterPrefs>) => save(patch).then(() => resetPrometheus(cluster));
 
   useEffect(() => {
     if (!connected) return;
     setDetected("checking…");
-    api
+    clusterApi(cluster)
       .prometheusDetect()
       .then((s) => setDetected(s ? `${s.namespace}/${s.service}:${s.port}` : "not found"))
       .catch((e) => setDetected(String(e)));
-  }, [connected, mode, prefs.prometheusService, prefs.prometheusPrefix]);
+  }, [cluster, connected, mode, prefs.prometheusService, prefs.prometheusPrefix]);
 
   return (
     <>
@@ -414,10 +416,12 @@ const COST_SOURCES = [
 ] as const;
 
 function CostSettings({
+  cluster,
   prefs,
   save,
   connected,
 }: {
+  cluster: string;
   prefs: ClusterPrefs;
   save: (p: Partial<ClusterPrefs>, msg?: string) => Promise<void>;
   connected: boolean;
@@ -436,7 +440,7 @@ function CostSettings({
   useEffect(() => {
     if (!connected) return;
     setDetected("checking…");
-    detectCostSource(prefs).then(
+    detectCostSource(clusterApi(cluster), prefs).then(
       (d) =>
         setDetected(
           d.status === "detected"

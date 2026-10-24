@@ -46,8 +46,6 @@ export interface ClusterPrefs {
 export interface Prefs {
   app: AppPrefs;
   clusters: Record<string, ClusterPrefs>;
-  /** Context id of the connected cluster (frontend-only). */
-  active?: string;
 }
 
 export const DEFAULT_APP: AppPrefs = {
@@ -94,11 +92,6 @@ export async function saveClusterPrefs(id: string, patch: Partial<ClusterPrefs>)
   emit();
 }
 
-export function setActiveCluster(id: string | undefined) {
-  current = { ...current, active: id };
-  emit();
-}
-
 const subscribe = (l: () => void) => {
   listeners.add(l);
   return () => listeners.delete(l);
@@ -107,11 +100,6 @@ const subscribe = (l: () => void) => {
 export const usePrefs = () => useSyncExternalStore(subscribe, () => current);
 export const useAppPrefs = () => usePrefs().app;
 export const getAppPrefs = () => current.app;
-/** Settings of the connected cluster. */
-export function useActiveClusterPrefs(): ClusterPrefs {
-  const p = usePrefs();
-  return (p.active && p.clusters[p.active]) || {};
-}
 
 const darkQuery = window.matchMedia("(prefers-color-scheme: dark)");
 function applyTheme(theme: AppPrefs["theme"]) {

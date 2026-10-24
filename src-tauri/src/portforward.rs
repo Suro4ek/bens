@@ -14,6 +14,8 @@ use crate::state::{AppState, Forward};
 #[serde(rename_all = "camelCase")]
 pub struct ForwardInfo {
     id: String,
+    /// Catalog id of the cluster it forwards into.
+    cluster: String,
     kind: String,
     namespace: String,
     name: String,
@@ -85,17 +87,18 @@ async fn pipe(client: Client, kind: String, ns: String, name: String, port: u16,
 #[tauri::command]
 pub async fn port_forward_start(
     state: State<'_, AppState>,
+    cluster: String,
     kind: String,
     namespace: String,
     name: String,
     remote_port: u16,
     local_port: Option<u16>,
 ) -> Result<ForwardInfo> {
-    let id = format!("{kind}/{namespace}/{name}:{remote_port}");
+    let id = format!("{cluster}|{kind}/{namespace}/{name}:{remote_port}");
     if let Some(f) = state.0.lock().unwrap().forwards.get(&id) {
         return Ok(f.info.clone());
     }
-    let client = state.client()?;
+    let client = state.client(&cluster)?;
     // Fail fast on an unresolvable target instead of on the first connection.
     resolve(&client, &kind, &namespace, &name, remote_port).await?;
 
@@ -105,6 +108,7 @@ pub async fn port_forward_start(
     let local = listener.local_addr().map_err(|e| Error::Other(e.to_string()))?.port();
     let info = ForwardInfo {
         id: id.clone(),
+        cluster: cluster.clone(),
         kind: kind.clone(),
         namespace: namespace.clone(),
         name: name.clone(),
@@ -126,7 +130,7 @@ pub async fn port_forward_start(
         }
     });
 
-    state.0.lock().unwrap().forwards.insert(id, Forward { info: info.clone(), task: task.abort_handle() });
+    state.0.lock().unwrap().forwards.insert(id, Forward { cluster, info: info.clone(), task: task.abort_handle() });
     Ok(info)
 }
 

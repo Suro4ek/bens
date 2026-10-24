@@ -44,6 +44,7 @@ fn strip(mut obj: DynamicObject) -> DynamicObject {
 #[tauri::command]
 pub async fn watch_resources(
     state: State<'_, AppState>,
+    cluster: String,
     watch_id: String,
     key: String,
     namespace: Option<String>,
@@ -51,8 +52,8 @@ pub async fn watch_resources(
     field_selector: Option<String>,
     on_event: Channel<WatchEvent>,
 ) -> Result<()> {
-    let client = state.client()?;
-    let rt = state.resource(&key)?;
+    let client = state.client(&cluster)?;
+    let rt = state.resource(&cluster, &key)?;
     let api = api_for(client, &rt, namespace.as_deref());
     let mut config = watcher::Config::default();
     if let Some(l) = label_selector.as_deref() {
@@ -85,7 +86,7 @@ pub async fn watch_resources(
             }
         }
     });
-    state.add_stream(watch_id, task.abort_handle());
+    state.add_stream(&cluster, watch_id, task.abort_handle());
     Ok(())
 }
 
@@ -97,12 +98,13 @@ pub fn stop_stream(state: State<'_, AppState>, id: String) {
 #[tauri::command]
 pub async fn get_yaml(
     state: State<'_, AppState>,
+    cluster: String,
     key: String,
     namespace: Option<String>,
     name: String,
 ) -> Result<String> {
-    let rt = state.resource(&key)?;
-    let api = object_api(state.client()?, &rt, namespace.as_deref());
+    let rt = state.resource(&cluster, &key)?;
+    let api = object_api(state.client(&cluster)?, &rt, namespace.as_deref());
     let obj = strip(api.get(&name).await?);
     Ok(serde_yaml_ng::to_string(&obj)?)
 }
@@ -110,13 +112,14 @@ pub async fn get_yaml(
 #[tauri::command]
 pub async fn apply_yaml(
     state: State<'_, AppState>,
+    cluster: String,
     key: String,
     namespace: Option<String>,
     name: String,
     yaml: String,
 ) -> Result<String> {
-    let rt = state.resource(&key)?;
-    let api = object_api(state.client()?, &rt, namespace.as_deref());
+    let rt = state.resource(&cluster, &key)?;
+    let api = object_api(state.client(&cluster)?, &rt, namespace.as_deref());
     let obj: DynamicObject = serde_yaml_ng::from_str(&yaml)?;
     if obj.metadata.name.as_deref() != Some(name.as_str()) {
         return Err(Error::Other("metadata.name cannot be changed".into()));
@@ -128,12 +131,13 @@ pub async fn apply_yaml(
 #[tauri::command]
 pub async fn delete_resource(
     state: State<'_, AppState>,
+    cluster: String,
     key: String,
     namespace: Option<String>,
     name: String,
 ) -> Result<()> {
-    let rt = state.resource(&key)?;
-    let api = object_api(state.client()?, &rt, namespace.as_deref());
+    let rt = state.resource(&cluster, &key)?;
+    let api = object_api(state.client(&cluster)?, &rt, namespace.as_deref());
     api.delete(&name, &DeleteParams::background()).await?;
     Ok(())
 }
@@ -141,13 +145,14 @@ pub async fn delete_resource(
 #[tauri::command]
 pub async fn scale_resource(
     state: State<'_, AppState>,
+    cluster: String,
     key: String,
     namespace: Option<String>,
     name: String,
     replicas: i32,
 ) -> Result<()> {
-    let rt = state.resource(&key)?;
-    let api = object_api(state.client()?, &rt, namespace.as_deref());
+    let rt = state.resource(&cluster, &key)?;
+    let api = object_api(state.client(&cluster)?, &rt, namespace.as_deref());
     let patch = json!({ "spec": { "replicas": replicas } });
     api.patch(&name, &PatchParams::default(), &Patch::Merge(&patch)).await?;
     Ok(())
@@ -157,12 +162,13 @@ pub async fn scale_resource(
 #[tauri::command]
 pub async fn restart_rollout(
     state: State<'_, AppState>,
+    cluster: String,
     key: String,
     namespace: Option<String>,
     name: String,
 ) -> Result<()> {
-    let rt = state.resource(&key)?;
-    let api = object_api(state.client()?, &rt, namespace.as_deref());
+    let rt = state.resource(&cluster, &key)?;
+    let api = object_api(state.client(&cluster)?, &rt, namespace.as_deref());
     let now = k8s_openapi::jiff::Timestamp::now().to_string();
     let patch = json!({
         "spec": { "template": { "metadata": { "annotations": {
@@ -177,6 +183,7 @@ pub async fn restart_rollout(
 #[tauri::command]
 pub async fn get_metrics(
     state: State<'_, AppState>,
+    cluster: String,
     scope: String,
     namespace: Option<String>,
 ) -> Result<Vec<DynamicObject>> {
@@ -187,7 +194,7 @@ pub async fn get_metrics(
     };
     let gvk = GroupVersionKind::gvk("metrics.k8s.io", "v1beta1", kind);
     let ar = ApiResource::from_gvk_with_plural(&gvk, &scope);
-    let client = state.client()?;
+    let client = state.client(&cluster)?;
     let api: Api<DynamicObject> = match namespace.as_deref() {
         Some(ns) if scope == "pods" && !ns.is_empty() => Api::namespaced_with(client, ns, &ar),
         _ => Api::all_with(client, &ar),
@@ -199,13 +206,14 @@ pub async fn get_metrics(
 #[tauri::command]
 pub async fn apply_manifest(
     state: State<'_, AppState>,
+    cluster: String,
     yaml: String,
     namespace: Option<String>,
 ) -> Result<Vec<String>> {
     use serde::Deserialize;
 
-    let client = state.client()?;
-    let types: Vec<ResourceType> = state.0.lock().unwrap().resources.values().cloned().collect();
+    let client = state.client(&cluster)?;
+    let types: Vec<ResourceType> = state.with_cluster(&cluster, |c| c.resources.values().cloned().collect())?;
     let mut docs = Vec::new();
     for doc in serde_yaml_ng::Deserializer::from_str(&yaml) {
         let value = serde_json::Value::deserialize(doc)?;
@@ -244,13 +252,14 @@ pub async fn apply_manifest(
 #[tauri::command]
 pub async fn patch_resource(
     state: State<'_, AppState>,
+    cluster: String,
     key: String,
     namespace: Option<String>,
     name: String,
     patch: serde_json::Value,
 ) -> Result<()> {
-    let rt = state.resource(&key)?;
-    let api = object_api(state.client()?, &rt, namespace.as_deref());
+    let rt = state.resource(&cluster, &key)?;
+    let api = object_api(state.client(&cluster)?, &rt, namespace.as_deref());
     api.patch(&name, &PatchParams::default(), &Patch::Merge(&patch)).await?;
     Ok(())
 }

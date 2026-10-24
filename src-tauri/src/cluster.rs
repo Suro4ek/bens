@@ -9,7 +9,7 @@ use serde::Serialize;
 use tauri::{AppHandle, State};
 
 use crate::error::{Error, Result};
-use crate::state::{AppState, ResourceType};
+use crate::state::{AppState, ClusterConn, ResourceType};
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -81,8 +81,9 @@ async fn discover(client: &Client) -> Result<Vec<GroupResources>> {
 
 #[tauri::command]
 pub async fn connect(app: AppHandle, state: State<'_, AppState>, file: String, context: String) -> Result<Connection> {
-    state.reset();
+    // Other clusters stay connected; reconnecting this one drops its old streams.
     let id = format!("{file}#{context}");
+    state.disconnect(&id);
     let prefs = crate::prefs::cluster(&app, &id);
 
     let kubeconfig = Kubeconfig::read_from(&file)?;
@@ -129,13 +130,17 @@ pub async fn connect(app: AppHandle, state: State<'_, AppState>, file: String, c
     }
     infos.sort_by(|a, b| (&a.group, &a.kind).cmp(&(&b.group, &b.kind)));
 
-    let mut inner = state.0.lock().unwrap();
-    inner.client = Some(client);
-    inner.context = Some(context.clone());
-    inner.context_id = Some(id);
-    inner.prefs = prefs;
-    inner.kubeconfig_file = Some(file);
-    inner.resources = types.into_iter().collect();
+    state.0.lock().unwrap().clusters.insert(
+        id,
+        ClusterConn {
+            context: context.clone(),
+            kubeconfig_file: file,
+            prefs,
+            client,
+            resources: types.into_iter().collect(),
+            prometheus: None,
+        },
+    );
 
     Ok(Connection {
         context,
@@ -147,6 +152,6 @@ pub async fn connect(app: AppHandle, state: State<'_, AppState>, file: String, c
 }
 
 #[tauri::command]
-pub fn disconnect(state: State<'_, AppState>) {
-    state.reset();
+pub fn disconnect(state: State<'_, AppState>, cluster: String) {
+    state.disconnect(&cluster);
 }

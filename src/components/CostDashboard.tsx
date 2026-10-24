@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { RefreshCw, Settings } from "lucide-react";
 import { api, Connection } from "../api";
+import { useApi } from "../clusterContext";
 import {
   COST_WINDOWS,
   CostAllocation,
@@ -69,7 +70,8 @@ export function CostDashboard({ conn, clusterId, prefs, onNavigate, onOpenSettin
   const setIdle = (v: boolean) => (setIdleState(v), storage.set(`costIdle:${clusterId}`, v ? "1" : "0"));
 
   const settingsKey = [prefs.costSource, prefs.costAddress, prefs.prometheusMode, prefs.prometheusService].join("|");
-  const detection = usePolled<Detection>(settingsKey, () => detectCostSource(prefs));
+  const capi = useApi();
+  const detection = usePolled<Detection>(settingsKey, () => detectCostSource(capi, prefs));
   const det = detection.data;
 
   return (
@@ -101,7 +103,6 @@ export function CostDashboard({ conn, clusterId, prefs, onNavigate, onOpenSettin
         <Detected
           key={`${det.source.id}|${det.source.handle}`}
           conn={conn}
-          clusterId={clusterId}
           prefs={prefs}
           detection={det}
           window={window}
@@ -176,7 +177,6 @@ function NotDetected({
 
 function Detected({
   conn,
-  clusterId,
   prefs,
   detection,
   window,
@@ -187,7 +187,6 @@ function Detected({
   onOpenSettings,
 }: {
   conn: Connection;
-  clusterId: string;
   prefs: ClusterPrefs;
   detection: Extract<Detection, { status: "detected" }>;
   window: CostWindow;
@@ -203,10 +202,11 @@ function Detected({
   // Node labels and sizes price the estimate (spot, Arm); the backends price nodes themselves.
   const nodes = useWatch(estimated ? nodesKey : undefined, null);
 
-  const observations = usePolled<Observations | null>(estimated ? window : null, () => loadObservations(clusterId, window));
-  const backend = usePolled<CostAllocation | null>(estimated ? null : window, () => fetchBackendAllocation(source, window));
+  const capi = useApi();
+  const observations = usePolled<Observations | null>(estimated ? window : null, () => loadObservations(capi, window));
+  const backend = usePolled<CostAllocation | null>(estimated ? null : window, () => fetchBackendAllocation(capi, source, window));
   // The stepped request is the slowest by far: the figures don't wait for it.
-  const backendTrend = usePolled<CostTrend | null>(estimated ? null : window, () => fetchBackendTrend(source, window));
+  const backendTrend = usePolled<CostTrend | null>(estimated ? null : window, () => fetchBackendTrend(capi, source, window));
 
   const rates = ratesFrom(prefs);
   const estimate_ = useMemo(

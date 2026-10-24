@@ -29,6 +29,7 @@ const LOG_FLUSH: Duration = Duration::from_millis(80);
 #[allow(clippy::too_many_arguments)]
 pub async fn stream_logs(
     state: State<'_, AppState>,
+    cluster: String,
     stream_id: String,
     namespace: String,
     pod: String,
@@ -38,7 +39,7 @@ pub async fn stream_logs(
     timestamps: bool,
     on_event: Channel<LogEvent>,
 ) -> Result<()> {
-    let pods: Api<Pod> = Api::namespaced(state.client()?, &namespace);
+    let pods: Api<Pod> = Api::namespaced(state.client(&cluster)?, &namespace);
     let params = LogParams {
         container,
         follow: !previous,
@@ -83,7 +84,7 @@ pub async fn stream_logs(
         }
         let _ = on_event.send(LogEvent::End);
     });
-    state.add_stream(stream_id, task.abort_handle());
+    state.add_stream(&cluster, stream_id, task.abort_handle());
     Ok(())
 }
 
@@ -100,6 +101,7 @@ const SHELL: &str = "command -v bash >/dev/null && exec bash || exec sh";
 #[tauri::command]
 pub async fn exec_start(
     state: State<'_, AppState>,
+    cluster: String,
     session_id: String,
     namespace: String,
     pod: String,
@@ -108,8 +110,8 @@ pub async fn exec_start(
     rows: u16,
     on_event: Channel<ExecEvent>,
 ) -> Result<()> {
-    let pods: Api<Pod> = Api::namespaced(state.client()?, &namespace);
-    start_exec(&state, session_id, pods, &pod, container, SHELL, (cols, rows), on_event, None).await
+    let pods: Api<Pod> = Api::namespaced(state.client(&cluster)?, &namespace);
+    start_exec(&state, &cluster, session_id, pods, &pod, container, SHELL, (cols, rows), on_event, None).await
 }
 
 /// Deletes a helper pod when its session ends, including when the task is aborted.
@@ -131,6 +133,7 @@ impl Drop for PodCleanup {
 #[allow(clippy::too_many_arguments)]
 pub async fn start_exec(
     state: &AppState,
+    cluster: &str,
     session_id: String,
     pods: Api<Pod>,
     pod: &str,
@@ -182,7 +185,7 @@ pub async fn start_exec(
 
     state.0.lock().unwrap().execs.insert(
         session_id,
-        ExecSession { stdin: stdin_tx, resize: resize_tx, task: task.abort_handle() },
+        ExecSession { cluster: cluster.to_string(), stdin: stdin_tx, resize: resize_tx, task: task.abort_handle() },
     );
     Ok(())
 }
@@ -194,7 +197,7 @@ pub fn exec_input(state: State<'_, AppState>, session_id: String, data: String) 
     let mut inner = state.0.lock().unwrap();
     if let Some(s) = inner.execs.get(&session_id) {
         let _ = s.stdin.send(data.into_bytes());
-    } else if let Some(p) = inner.ptys.get_mut(&session_id) {
+    } else if let Some((_, p)) = inner.ptys.get_mut(&session_id) {
         p.write(data.as_bytes());
     }
 }
@@ -204,7 +207,7 @@ pub fn exec_resize(state: State<'_, AppState>, session_id: String, cols: u16, ro
     let inner = state.0.lock().unwrap();
     if let Some(s) = inner.execs.get(&session_id) {
         let _ = s.resize.send((cols, rows));
-    } else if let Some(p) = inner.ptys.get(&session_id) {
+    } else if let Some((_, p)) = inner.ptys.get(&session_id) {
         p.resize(cols, rows);
     }
 }
@@ -215,7 +218,7 @@ pub fn exec_stop(state: State<'_, AppState>, session_id: String) {
     if let Some(s) = inner.execs.remove(&session_id) {
         s.task.abort();
     }
-    if let Some(mut p) = inner.ptys.remove(&session_id) {
+    if let Some((_, mut p)) = inner.ptys.remove(&session_id) {
         p.kill();
     }
 }

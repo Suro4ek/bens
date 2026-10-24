@@ -46,10 +46,11 @@ fn enc(s: &str) -> String {
 #[tauri::command]
 pub async fn cost_find_service(
     state: State<'_, AppState>,
+    cluster: String,
     selectors: Vec<String>,
     preferred_port: i32,
 ) -> Result<Option<String>> {
-    let client = state.client()?;
+    let client = state.client(&cluster)?;
     let api: Api<Service> = Api::all(client);
     let mut fallback = None;
     for sel in &selectors {
@@ -73,6 +74,7 @@ pub async fn cost_find_service(
 #[tauri::command]
 pub async fn service_proxy_get(
     state: State<'_, AppState>,
+    cluster: String,
     address: String,
     path: String,
     query: Vec<(String, String)>,
@@ -83,7 +85,7 @@ pub async fn service_proxy_get(
     }
     let query = query.iter().map(|(k, v)| format!("{}={}", enc(k), enc(v))).collect::<Vec<_>>().join("&");
     let url = format!("/api/v1/namespaces/{ns}/services/{svc}:{port}/proxy{path}?{query}");
-    let client = state.client()?;
+    let client = state.client(&cluster)?;
     let req = http::Request::get(url).body(Vec::new()).map_err(|e| Error::Other(e.to_string()))?;
     let text = client.request_text(req).await.map_err(|e| match &e {
         // The proxy answers 502-504 for a service with no ready endpoints: usually one installed a moment ago.

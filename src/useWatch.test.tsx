@@ -1,7 +1,9 @@
 import { act, renderHook, waitFor } from "@testing-library/react";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import type { ReactNode } from "react";
+import { beforeEach, describe, expect, it } from "vitest";
 import { api, ContextInfo } from "./api";
-import { handlers, liveWatches, obj, resetMock } from "./test/tauriMock";
+import { ClusterContext } from "./clusterContext";
+import { handlers, liveWatches, obj } from "./test/tauriMock";
 import { useWatch } from "./useWatch";
 
 const ctx = (name: string): ContextInfo => ({
@@ -12,12 +14,19 @@ const ctx = (name: string): ContextInfo => ({
   cluster: name,
   user: "me",
 });
+const A = ctx("cluster-a");
+const B = ctx("cluster-b");
+
+const inCluster = (cluster: string) => ({ children }: { children: ReactNode }) => (
+  <ClusterContext.Provider value={cluster}>{children}</ClusterContext.Provider>
+);
+const watchIn = (cluster: string, key: string, namespace: string | null = null) =>
+  renderHook(() => useWatch(key, namespace), { wrapper: inCluster(cluster) });
 
 const names = (items: { metadata: { name: string } }[]) => items.map((o) => o.metadata.name).sort();
 
 describe("useWatch", () => {
   beforeEach(() => {
-    resetMock();
     handlers.connect = ({ context }: { context: string }) => ({
       context,
       serverVersion: "v1.33",
@@ -26,12 +35,11 @@ describe("useWatch", () => {
       resources: [],
     });
   });
-  afterEach(resetMock);
 
   it("applies the initial list and later changes", async () => {
-    const { result } = renderHook(() => useWatch("/v1/namespaces", null));
-    await waitFor(() => expect(liveWatches("/v1/namespaces")).toHaveLength(1));
-    const [w] = liveWatches("/v1/namespaces");
+    const { result } = watchIn(A.id, "/v1/namespaces");
+    await waitFor(() => expect(liveWatches("/v1/namespaces", A.id)).toHaveLength(1));
+    const [w] = liveWatches("/v1/namespaces", A.id);
 
     act(() => w.channel.send({ type: "reset", items: [obj("default"), obj("kube-system")] }));
     await waitFor(() => expect(names(result.current.items)).toEqual(["default", "kube-system"]));
@@ -42,46 +50,46 @@ describe("useWatch", () => {
     await waitFor(() => expect(names(result.current.items)).toEqual(["kube-system", "payments"]));
   });
 
-  // Regression: the same key (`/v1/namespaces`) on another cluster kept showing the first cluster's list,
-  // because the hook never re-subscribed after a cluster switch.
-  it("re-subscribes after switching clusters and drops the old cluster's objects", async () => {
-    const { result } = renderHook(() => useWatch("/v1/namespaces", null));
-    await waitFor(() => expect(liveWatches("/v1/namespaces")).toHaveLength(1));
-    act(() => liveWatches("/v1/namespaces")[0].channel.send({ type: "reset", items: [obj("cluster-a-only")] }));
-    await waitFor(() => expect(names(result.current.items)).toEqual(["cluster-a-only"]));
+  it("watches the same resource in two clusters independently", async () => {
+    const a = watchIn(A.id, "/v1/namespaces");
+    const b = watchIn(B.id, "/v1/namespaces");
+    await waitFor(() => expect(liveWatches("/v1/namespaces")).toHaveLength(2));
 
-    await act(() => api.connect(ctx("cluster-b")).then(() => {}));
+    act(() => liveWatches("/v1/namespaces", A.id)[0].channel.send({ type: "reset", items: [obj("a-only")] }));
+    act(() => liveWatches("/v1/namespaces", B.id)[0].channel.send({ type: "reset", items: [obj("b-only")] }));
 
-    await waitFor(() => expect(liveWatches("/v1/namespaces")).toHaveLength(1));
-    // Nothing from cluster A survives the switch, even before cluster B answers.
-    expect(result.current.items).toEqual([]);
-    expect(result.current.loading).toBe(true);
-
-    act(() => liveWatches("/v1/namespaces")[0].channel.send({ type: "reset", items: [obj("cluster-b-only")] }));
-    await waitFor(() => expect(names(result.current.items)).toEqual(["cluster-b-only"]));
+    await waitFor(() => expect(names(a.result.current.items)).toEqual(["a-only"]));
+    await waitFor(() => expect(names(b.result.current.items)).toEqual(["b-only"]));
   });
 
-  it("re-subscribes on reconnect to the same cluster", async () => {
-    renderHook(() => useWatch("/v1/pods", "default"));
-    await waitFor(() => expect(liveWatches("/v1/pods")).toHaveLength(1));
-    const first = liveWatches("/v1/pods")[0];
+  // Reconnecting drops the cluster's backend streams: its lists must subscribe again,
+  // and must not keep showing what they had before.
+  it("re-subscribes after its cluster reconnects, leaving other clusters alone", async () => {
+    const a = watchIn(A.id, "/v1/pods", "default");
+    watchIn(B.id, "/v1/pods", "default");
+    await waitFor(() => expect(liveWatches("/v1/pods")).toHaveLength(2));
+    const firstA = liveWatches("/v1/pods", A.id)[0];
+    const firstB = liveWatches("/v1/pods", B.id)[0];
+    act(() => firstA.channel.send({ type: "reset", items: [obj("old-pod")] }));
+    await waitFor(() => expect(names(a.result.current.items)).toEqual(["old-pod"]));
 
-    await act(() => api.connect(ctx("cluster-a")).then(() => {}));
+    await act(() => api.connect(A).then(() => {}));
 
-    await waitFor(() => expect(first.stopped).toBe(true));
-    expect(liveWatches("/v1/pods")).toHaveLength(1);
-    expect(liveWatches("/v1/pods")[0]).not.toBe(first);
+    await waitFor(() => expect(liveWatches("/v1/pods", A.id)).toHaveLength(1));
+    expect(liveWatches("/v1/pods", A.id)[0]).not.toBe(firstA);
+    expect(a.result.current.items).toEqual([]);
+    expect(liveWatches("/v1/pods", B.id)[0]).toBe(firstB);
   });
 
   it("stops watching on unmount", async () => {
-    const { unmount } = renderHook(() => useWatch("/v1/nodes", null));
+    const { unmount } = watchIn(A.id, "/v1/nodes");
     await waitFor(() => expect(liveWatches("/v1/nodes")).toHaveLength(1));
     unmount();
     await waitFor(() => expect(liveWatches("/v1/nodes")).toHaveLength(0));
   });
 
   it("does nothing without a key", async () => {
-    const { result } = renderHook(() => useWatch(undefined, null));
+    const { result } = renderHook(() => useWatch(undefined, null), { wrapper: inCluster(A.id) });
     await waitFor(() => expect(result.current.loading).toBe(false));
     expect(result.current.items).toEqual([]);
   });

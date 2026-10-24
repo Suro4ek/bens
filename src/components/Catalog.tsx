@@ -6,9 +6,9 @@ import { ClusterIcon } from "./ClusterIcon";
 
 interface Props {
   catalog: Contexts;
-  connecting?: string;
+  connecting: string[];
   /** Connected context. */
-  activeId?: string;
+  connected: string[];
   error?: string;
   onPick: (ctx: ContextInfo) => void;
   onSettings: (ctx: ContextInfo) => void;
@@ -18,7 +18,7 @@ interface Props {
 
 const SOURCE_LABEL = { sync: "synced", env: "$KUBECONFIG", pasted: "added in Bens" } as const;
 
-export function Catalog({ catalog, connecting, activeId, error, onPick, onSettings, onChanged, notify }: Props) {
+export function Catalog({ catalog, connecting, connected, error, onPick, onSettings, onChanged, notify }: Props) {
   const [adding, setAdding] = useState(false);
   const [filter, setFilter] = useState("");
   const { clusters } = usePrefs();
@@ -79,9 +79,9 @@ export function Catalog({ catalog, connecting, activeId, error, onPick, onSettin
                   key={c.id}
                   role="button"
                   tabIndex={0}
-                  className={`card ${connecting ? "disabled" : ""}`}
-                  onClick={() => !connecting && onPick(c)}
-                  onKeyDown={(e) => e.key === "Enter" && !connecting && onPick(c)}
+                  className={`card ${connecting.includes(c.id) ? "disabled" : ""}`}
+                  onClick={() => !connecting.includes(c.id) && onPick(c)}
+                  onKeyDown={(e) => e.key === "Enter" && !connecting.includes(c.id) && onPick(c)}
                   onContextMenu={(e) => {
                     e.preventDefault();
                     onSettings(c);
@@ -100,8 +100,8 @@ export function Catalog({ catalog, connecting, activeId, error, onPick, onSettin
                       {c.namespace ? ` · ns: ${c.namespace}` : ""}
                     </div>
                   </div>
-                  {connecting === c.id && <div className="spinner" />}
-                  {activeId === c.id && <span className="chip ok">connected</span>}
+                  {connecting.includes(c.id) && <div className="spinner" />}
+                  {connected.includes(c.id) && <span className="chip ok">connected</span>}
                   <button
                     className="icon card-gear"
                     title="Cluster settings"

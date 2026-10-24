@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { api, ChartHit, HelmRepo } from "../api";
 import { CodeEditor } from "./CodeEditor";
+import { useApi } from "../clusterContext";
 
 interface Props {
   namespace: string | null;
@@ -10,6 +11,7 @@ interface Props {
 
 /** Search charts in the user's helm repos and install one (helm CLI). */
 export function InstallChart({ namespace, onClose, onInstalled }: Props) {
+  const capi = useApi();
   const [repos, setRepos] = useState<HelmRepo[]>([]);
   const [query, setQuery] = useState("");
   const [hits, setHits] = useState<ChartHit[]>([]);
@@ -72,7 +74,7 @@ export function InstallChart({ namespace, onClose, onInstalled }: Props) {
 
   const install = () =>
     guard("install", async () => {
-      await api.helmInstall(name, ns, chart!.name, version, values);
+      await capi.helmInstall(name, ns, chart!.name, version, values);
       onInstalled(`Installed ${name} (${chart!.name} ${version}) into ${ns}`);
     });
 

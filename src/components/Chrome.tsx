@@ -58,25 +58,24 @@ export function TitleBar({
 
 export interface MainTab {
   id: string;
+  /** Full title, with the cluster name for cluster tabs ("Pods - minikube"). */
   title: string;
+  /** View id, for the icon. */
+  view: string;
+  /** Color of the tab's top line when active: its cluster's color. */
+  accent?: string;
 }
 
 /** Tabs above the main area. */
 export function MainTabs({
   tabs,
   active,
-  suffix,
-  accent,
   onActivate,
   onClose,
   onCloseMany,
 }: {
   tabs: MainTab[];
   active?: string;
-  /** Appended to titles (the cluster name), as in "Pods - minikube". */
-  suffix?: string;
-  /** Color of the active tab's top line (the cluster color). */
-  accent?: string;
   onActivate: (id: string) => void;
   onClose?: (id: string) => void;
   onCloseMany?: (ids: string[], fallback?: string) => void;
@@ -91,7 +90,7 @@ export function MainTabs({
   }, [active, tabs.length]);
 
   return (
-    <div className="main-tabs-bar" style={accent ? ({ "--tab-accent": accent } as React.CSSProperties) : undefined}>
+    <div className="main-tabs-bar">
     <div
       ref={strip}
       className="main-tabs"
@@ -101,24 +100,22 @@ export function MainTabs({
       }}
     >
       {tabs.map((t) => {
-        const Icon = viewIcon(t.id);
+        const Icon = viewIcon(t.view);
         return (
           <div
             key={t.id}
             className={`main-tab ${t.id === active ? "active" : ""}`}
+            style={t.accent ? ({ "--tab-accent": t.accent } as React.CSSProperties) : undefined}
             onClick={() => onActivate(t.id)}
             onAuxClick={(e) => e.button === 1 && onClose?.(t.id)}
             onContextMenu={(e) => {
               e.preventDefault();
               if (onCloseMany) setTabMenu({ x: e.clientX, y: e.clientY, id: t.id });
             }}
-            title={suffix ? `${t.title} - ${suffix}` : t.title}
+            title={t.title}
           >
             <Icon size={15} className="tab-icon" />
-            <span className="tab-title">
-              {t.title}
-              {suffix && t.id !== "catalog" && ` - ${suffix}`}
-            </span>
+            <span className="tab-title">{t.title}</span>
             {onClose && (
               <button
                 className="icon tab-close"
@@ -152,7 +149,7 @@ export function MainTabs({
               <div className="menu-backdrop" onClick={() => setMenu(false)} />
               <div className="menu">
                 {tabs.map((t) => {
-                  const Icon = viewIcon(t.id);
+                  const Icon = viewIcon(t.view);
                   return (
                     <div
                       key={t.id}
@@ -188,7 +185,7 @@ export function StatusBar({
   namespace: string | null;
   onForwards: () => void;
 }) {
-  const forwards = useForwards();
+  const forwards = useForwards(ctx?.id);
   return (
     <footer className="statusbar">
       {ctx && conn ? (

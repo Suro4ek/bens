@@ -19,85 +19,124 @@ pub struct ResourceType {
     pub namespaced: bool,
 }
 
+/// One connected cluster. Several can be connected at once; every command
+/// names the cluster it is for by its catalog id (`<file>#<context>`).
+pub struct ClusterConn {
+    pub context: String,
+    pub kubeconfig_file: String,
+    pub prefs: ClusterPrefs,
+    pub client: Client,
+    pub resources: HashMap<String, ResourceType>,
+    pub prometheus: Option<PromService>,
+}
+
 pub struct ExecSession {
+    pub cluster: String,
     pub stdin: mpsc::UnboundedSender<Vec<u8>>,
     pub resize: mpsc::UnboundedSender<(u16, u16)>,
     pub task: AbortHandle,
 }
 
 pub struct Forward {
+    pub cluster: String,
     pub info: ForwardInfo,
+    pub task: AbortHandle,
+}
+
+pub struct Stream {
+    pub cluster: String,
     pub task: AbortHandle,
 }
 
 #[derive(Default)]
 pub struct Inner {
-    pub context: Option<String>,
-    /// Catalog id of the connected context (`<file>#<context>`).
-    pub context_id: Option<String>,
-    pub prefs: ClusterPrefs,
-    pub kubeconfig_file: Option<String>,
-    pub client: Option<Client>,
-    pub resources: HashMap<String, ResourceType>,
+    pub clusters: HashMap<String, ClusterConn>,
     /// Background streams (watches, log followers) keyed by a frontend-chosen id.
-    pub streams: HashMap<String, AbortHandle>,
+    pub streams: HashMap<String, Stream>,
     pub execs: HashMap<String, ExecSession>,
-    pub ptys: HashMap<String, PtySession>,
+    /// Local terminals, with the cluster they were opened for.
+    pub ptys: HashMap<String, (String, PtySession)>,
     pub forwards: HashMap<String, Forward>,
-    pub prometheus: Option<PromService>,
 }
 
 #[derive(Default)]
 pub struct AppState(pub Mutex<Inner>);
 
 impl AppState {
-    pub fn client(&self) -> Result<Client> {
-        self.0.lock().unwrap().client.clone().ok_or(Error::NotConnected)
+    /// Reads something off a connected cluster.
+    pub fn with_cluster<T>(&self, cluster: &str, f: impl FnOnce(&mut ClusterConn) -> T) -> Result<T> {
+        let mut inner = self.0.lock().unwrap();
+        inner.clusters.get_mut(cluster).map(f).ok_or(Error::NotConnected)
     }
 
-    pub fn resource(&self, key: &str) -> Result<ResourceType> {
-        self.0
-            .lock()
-            .unwrap()
-            .resources
-            .get(key)
-            .cloned()
+    pub fn client(&self, cluster: &str) -> Result<Client> {
+        self.with_cluster(cluster, |c| c.client.clone())
+    }
+
+    pub fn prefs(&self, cluster: &str) -> Result<ClusterPrefs> {
+        self.with_cluster(cluster, |c| c.prefs.clone())
+    }
+
+    pub fn resource(&self, cluster: &str, key: &str) -> Result<ResourceType> {
+        self.with_cluster(cluster, |c| c.resources.get(key).cloned())?
             .ok_or_else(|| Error::UnknownResource(key.to_string()))
     }
 
-    pub fn add_stream(&self, id: String, handle: AbortHandle) {
-        if let Some(old) = self.0.lock().unwrap().streams.insert(id, handle) {
-            old.abort();
+    pub fn add_stream(&self, cluster: &str, id: String, task: AbortHandle) {
+        let stream = Stream { cluster: cluster.to_string(), task };
+        if let Some(old) = self.0.lock().unwrap().streams.insert(id, stream) {
+            old.task.abort();
         }
     }
 
     pub fn stop_stream(&self, id: &str) {
-        if let Some(h) = self.0.lock().unwrap().streams.remove(id) {
-            h.abort();
+        if let Some(s) = self.0.lock().unwrap().streams.remove(id) {
+            s.task.abort();
         }
     }
 
-    /// Drops everything bound to the current cluster connection.
-    pub fn reset(&self) {
+    /// Drops a cluster's connection and everything running against it; other clusters are untouched.
+    pub fn disconnect(&self, cluster: &str) {
         let mut inner = self.0.lock().unwrap();
-        for (_, h) in inner.streams.drain() {
-            h.abort();
-        }
-        for (_, s) in inner.execs.drain() {
+        inner.clusters.remove(cluster);
+        inner.streams.retain(|_, s| s.cluster != cluster || {
             s.task.abort();
-        }
-        for (_, mut p) in inner.ptys.drain() {
+            false
+        });
+        inner.execs.retain(|_, s| s.cluster != cluster || {
+            s.task.abort();
+            false
+        });
+        inner.ptys.retain(|_, (c, p)| c != cluster || {
             p.kill();
-        }
-        for (_, f) in inner.forwards.drain() {
+            false
+        });
+        inner.forwards.retain(|_, f| f.cluster != cluster || {
             f.task.abort();
-        }
-        inner.resources.clear();
-        inner.client = None;
-        inner.context = None;
-        inner.context_id = None;
-        inner.prefs = ClusterPrefs::default();
-        inner.kubeconfig_file = None;
-        inner.prometheus = None;
+            false
+        });
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn disconnect_only_stops_that_clusters_streams() {
+        let state = AppState::default();
+        let a = tokio::spawn(std::future::pending::<()>()).abort_handle();
+        let b = tokio::spawn(std::future::pending::<()>()).abort_handle();
+        state.add_stream("cluster-a", "watch-1".into(), a.clone());
+        state.add_stream("cluster-b", "watch-2".into(), b.clone());
+
+        state.disconnect("cluster-a");
+        tokio::task::yield_now().await;
+
+        assert!(a.is_finished());
+        assert!(!b.is_finished());
+        let inner = state.0.lock().unwrap();
+        assert!(!inner.streams.contains_key("watch-1"));
+        assert!(inner.streams.contains_key("watch-2"));
     }
 }

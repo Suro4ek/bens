@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
-import { api, KubeObject, ResourceInfo } from "../api";
+import type { KubeObject, ResourceInfo } from "../api";
 import { CodeEditor } from "./CodeEditor";
+import { useApi } from "../clusterContext";
 
 type Msg = { tone: "ok" | "bad"; text: string } | null;
 
@@ -15,6 +16,7 @@ function Toolbar({ children, msg }: { children: React.ReactNode; msg: Msg }) {
 
 /** Edit an existing object (replace). */
 export function YamlView({ resource, obj }: { resource: ResourceInfo; obj: KubeObject }) {
+  const capi = useApi();
   const [text, setText] = useState("");
   const [original, setOriginal] = useState("");
   const [msg, setMsg] = useState<Msg>(null);
@@ -23,7 +25,7 @@ export function YamlView({ resource, obj }: { resource: ResourceInfo; obj: KubeO
 
   const load = () => {
     setMsg(null);
-    api
+    capi
       .getYaml(resource.key, namespace, name)
       .then((y) => {
         setText(y);
@@ -38,7 +40,7 @@ export function YamlView({ resource, obj }: { resource: ResourceInfo; obj: KubeO
     if (!dirty || busy) return;
     setBusy(true);
     try {
-      const y = await api.applyYaml(resource.key, namespace, name, text);
+      const y = await capi.applyYaml(resource.key, namespace, name, text);
       setText(y);
       setOriginal(y);
       setMsg({ tone: "ok", text: "Saved" });
@@ -78,6 +80,7 @@ data:
 
 /** Create or update objects from YAML (server-side apply; multiple documents allowed). */
 export function CreateView({ namespace }: { namespace: string | null }) {
+  const capi = useApi();
   const [text, setText] = useState(TEMPLATE);
   const [msg, setMsg] = useState<Msg>(null);
   const [busy, setBusy] = useState(false);
@@ -86,7 +89,7 @@ export function CreateView({ namespace }: { namespace: string | null }) {
     if (busy) return;
     setBusy(true);
     try {
-      const done = await api.applyManifest(text, namespace);
+      const done = await capi.applyManifest(text, namespace);
       setMsg({ tone: "ok", text: `Applied: ${done.join(", ")}` });
     } catch (e) {
       setMsg({ tone: "bad", text: String(e) });

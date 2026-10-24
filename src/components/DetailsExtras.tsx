@@ -19,6 +19,7 @@ import { navId } from "../nav";
 import { formatBytes, formatCpu } from "../util";
 import { PromChart, promQueries, useMetricsHidden, usePrometheusAvailable } from "./Charts";
 import { forwardsChanged } from "./PortForwards";
+import { useApi } from "../clusterContext";
 
 type Notify = (msg: string, tone?: "ok" | "bad") => void;
 type Navigate = (navId: string, uid?: string, ref?: { namespace?: string; name: string }) => void;
@@ -50,6 +51,7 @@ export function FluxActions({
   obj: KubeObject;
   notify: Notify;
 }) {
+  const capi = useApi();
   const { busy, run } = useRunner(notify);
   const source = fluxSourceTarget(resources, obj);
   const suspended = !!obj.spec?.suspend;
@@ -82,7 +84,7 @@ export function FluxActions({
         )}
       </dl>
       <div className="btn-row">
-        <button disabled={busy || suspended} onClick={() => run("Reconcile requested", () => fluxReconcile(resource, obj))}>
+        <button disabled={busy || suspended} onClick={() => run("Reconcile requested", () => fluxReconcile(capi, resource, obj))}>
           Reconcile
         </button>
         {source && (
@@ -91,8 +93,8 @@ export function FluxActions({
             title={`Also reconcile ${source.res.kind}/${source.obj.metadata.name}`}
             onClick={() =>
               run("Reconcile with source requested", async () => {
-                await fluxReconcile(source.res, source.obj);
-                await fluxReconcile(resource, obj);
+                await fluxReconcile(capi, source.res, source.obj);
+                await fluxReconcile(capi, resource, obj);
               })
             }
           >
@@ -102,7 +104,7 @@ export function FluxActions({
         {hasSpec && (
           <button
             disabled={busy}
-            onClick={() => run(suspended ? "Resumed" : "Suspended", () => fluxSuspend(resource, obj, !suspended))}
+            onClick={() => run(suspended ? "Resumed" : "Suspended", () => fluxSuspend(capi, resource, obj, !suspended))}
           >
             {suspended ? "Resume" : "Suspend"}
           </button>
@@ -125,6 +127,7 @@ export function ArgoAppDetails({
   notify: Notify;
   onNavigate: Navigate;
 }) {
+  const capi = useApi();
   const { busy, run } = useRunner(notify);
   const [prune, setPrune] = useState(false);
   const op = obj.status?.operationState;
@@ -156,23 +159,23 @@ export function ArgoAppDetails({
           )}
         </dl>
         <div className="btn-row">
-          <button disabled={busy} className="primary" onClick={() => run("Sync started", () => argoSyncApp(resource, obj, prune))}>
+          <button disabled={busy} className="primary" onClick={() => run("Sync started", () => argoSyncApp(capi, resource, obj, prune))}>
             Sync
           </button>
           <label className="small muted">
             <input type="checkbox" checked={prune} onChange={(e) => setPrune(e.target.checked)} /> prune
           </label>
-          <button disabled={busy} onClick={() => run("Refresh requested", () => argoRefresh(resource, obj, false))}>
+          <button disabled={busy} onClick={() => run("Refresh requested", () => argoRefresh(capi, resource, obj, false))}>
             Refresh
           </button>
-          <button disabled={busy} onClick={() => run("Hard refresh requested", () => argoRefresh(resource, obj, true))}>
+          <button disabled={busy} onClick={() => run("Hard refresh requested", () => argoRefresh(capi, resource, obj, true))}>
             Hard refresh
           </button>
           <button
             disabled={busy}
             onClick={() =>
               run("Argo CD UI opened", async () => {
-                await openArgoUi(obj.metadata.namespace ?? "argocd");
+                await openArgoUi(capi, obj.metadata.namespace ?? "argocd");
                 forwardsChanged();
               })
             }

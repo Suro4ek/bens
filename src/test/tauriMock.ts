@@ -30,7 +30,14 @@ type Handler = (args: any) => unknown;
 export const handlers: Record<string, Handler> = {};
 
 /** Open watches, newest last: what the UI is subscribed to right now. */
-export const watches: { id: string; key: string; namespace: string | null; channel: FakeChannel<WatchEvent>; stopped: boolean }[] = [];
+export const watches: {
+  id: string;
+  cluster: string;
+  key: string;
+  namespace: string | null;
+  channel: FakeChannel<WatchEvent>;
+  stopped: boolean;
+}[] = [];
 
 export class FakeChannel<T> {
   id = Math.random();
@@ -44,15 +51,16 @@ vi.mock("@tauri-apps/api/core", () => ({
   Channel: FakeChannel,
   invoke: vi.fn(async (cmd: string, args: any = {}) => {
     if (cmd === "watch_resources") {
-      watches.push({ id: args.watchId, key: args.key, namespace: args.namespace, channel: args.onEvent, stopped: false });
+      watches.push({ id: args.watchId, cluster: args.cluster, key: args.key, namespace: args.namespace, channel: args.onEvent, stopped: false });
       return;
     }
     if (cmd === "stop_stream") {
       for (const w of watches) if (w.id === args.id) w.stopped = true;
       return;
     }
-    // Like the backend: connecting or disconnecting drops every running stream.
-    if (cmd === "connect" || cmd === "disconnect") for (const w of watches) w.stopped = true;
+    // Like the backend: (re)connecting or disconnecting a cluster drops that cluster's streams.
+    const cluster = cmd === "connect" ? `${args.file}#${args.context}` : cmd === "disconnect" ? args.cluster : undefined;
+    if (cluster) for (const w of watches) if (w.cluster === cluster) w.stopped = true;
     const h = handlers[cmd];
     if (!h) return null;
     return h(args);
@@ -61,8 +69,9 @@ vi.mock("@tauri-apps/api/core", () => ({
 
 vi.mock("@tauri-apps/plugin-opener", () => ({ openUrl: vi.fn(), revealItemInDir: vi.fn() }));
 
-/** Live (not stopped) watches of a resource key. */
-export const liveWatches = (key: string) => watches.filter((w) => w.key === key && !w.stopped);
+/** Live (not stopped) watches of a resource key, optionally of one cluster. */
+export const liveWatches = (key: string, cluster?: string) =>
+  watches.filter((w) => w.key === key && !w.stopped && (!cluster || w.cluster === cluster));
 
 export const obj = (name: string, extra: Partial<KubeObject> = {}): KubeObject => ({
   metadata: { name, uid: `uid-${name}` },

@@ -8,6 +8,7 @@ import { NamespaceSelect } from "./NamespaceSelect";
 import type { MetricsMap } from "../useMetrics";
 import type { DockActions } from "./DetailsPanel";
 import { ContextMenu, objectMenuItems, ScaleDialog } from "./ObjectMenu";
+import { useApi } from "../clusterContext";
 
 interface Props {
   resource: ResourceInfo;
@@ -25,6 +26,7 @@ interface Props {
 const uidOf = (o: KubeObject) => o.metadata.uid ?? `${o.metadata.namespace}/${o.metadata.name}`;
 
 export function ResourceTable({ resource, watch, allNamespaces, metrics, extraColumns, selectedUid, onSelect, notify, actions }: Props) {
+  const capi = useApi();
   const [menu, setMenu] = useState<{ x: number; y: number; obj: KubeObject } | null>(null);
   const [scaling, setScaling] = useState<KubeObject | null>(null);
   const [checked, setChecked] = useState<Set<string>>(new Set());
@@ -133,7 +135,7 @@ export function ResourceTable({ resource, watch, allNamespaces, metrics, extraCo
     if (!confirm(`Delete ${names.length} ${resource.kind}(s)?\n\n${names.slice(0, 20).join("\n")}${names.length > 20 ? "\n…" : ""}`))
       return;
     const results = await Promise.allSettled(
-      checkedRows.map((o) => api.delete(resource.key, o.metadata.namespace, o.metadata.name)),
+      checkedRows.map((o) => capi.delete(resource.key, o.metadata.namespace, o.metadata.name)),
     );
     const failed = results.filter((r) => r.status === "rejected") as PromiseRejectedResult[];
     setChecked(new Set());
@@ -252,7 +254,7 @@ export function ResourceTable({ resource, watch, allNamespaces, metrics, extraCo
         <ContextMenu
           x={menu.x}
           y={menu.y}
-          items={objectMenuItems(menu.obj, { resource, actions, notify, askScale: setScaling })}
+          items={objectMenuItems(menu.obj, { capi, resource, actions, notify, askScale: setScaling })}
           onClose={() => setMenu(null)}
         />
       )}

@@ -5,16 +5,16 @@ import type { ClusterPrefs } from "./prefs";
 
 export interface ClusterMenuActions {
   connect: (ctx: ContextInfo) => void;
-  disconnect: () => void;
+  disconnect: (ctx: ContextInfo) => void;
   settings: (ctx: ContextInfo) => void;
-  terminal: () => void;
+  terminal: (ctx: ContextInfo) => void;
   setHotbar: (ctx: ContextInfo, shown: boolean) => void;
   copy: (text: string) => void;
   reveal: (path: string) => void;
   remove: (ctx: ContextInfo) => void;
 }
 
-/** Right-click menu of a cluster in the Navigator and the hotbar. */
+/** Right-click menu of a cluster in the Navigator and the hotbar. `active` means connected. */
 export function clusterMenuItems(
   ctx: ContextInfo,
   state: { active: boolean; connecting: boolean; prefs?: ClusterPrefs },
@@ -25,8 +25,8 @@ export function clusterMenuItems(
     ...(active
       ? [
           { label: "Reconnect", icon: RefreshCw, run: () => a.connect(ctx) },
-          { label: "Disconnect", icon: Unplug, run: a.disconnect },
-          { label: "Open terminal", icon: SquareTerminal, run: a.terminal },
+          { label: "Disconnect", icon: Unplug, run: () => a.disconnect(ctx) },
+          { label: "Open terminal", icon: SquareTerminal, run: () => a.terminal(ctx) },
         ]
       : [{ label: connecting ? "Connecting…" : "Connect", icon: Plug, run: () => !connecting && a.connect(ctx) }]),
     { label: "Settings", icon: Settings, run: () => a.settings(ctx) },

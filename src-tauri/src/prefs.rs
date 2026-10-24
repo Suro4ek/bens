@@ -162,11 +162,10 @@ pub fn save_cluster_prefs(app: AppHandle, state: State<'_, AppState>, id: String
     store(&app, &all)?;
 
     // Apply to the live connection where it doesn't require reconnecting.
-    let mut inner = state.0.lock().unwrap();
-    if inner.context_id.as_deref() == Some(id.as_str()) {
-        inner.prefs = prefs;
-        inner.prometheus = None;
-    }
+    let _ = state.with_cluster(&id, |c| {
+        c.prefs = prefs;
+        c.prometheus = None;
+    });
     Ok(())
 }
 

@@ -8,8 +8,8 @@ use crate::error::Result;
 use crate::state::AppState;
 
 #[tauri::command]
-pub async fn node_cordon(state: State<'_, AppState>, name: String, unschedulable: bool) -> Result<()> {
-    let nodes: Api<Node> = Api::all(state.client()?);
+pub async fn node_cordon(state: State<'_, AppState>, cluster: String, name: String, unschedulable: bool) -> Result<()> {
+    let nodes: Api<Node> = Api::all(state.client(&cluster)?);
     let patch = json!({ "spec": { "unschedulable": unschedulable } });
     nodes.patch(&name, &PatchParams::default(), &Patch::Merge(&patch)).await?;
     Ok(())
@@ -26,9 +26,9 @@ pub struct DrainResult {
 /// Like `kubectl drain --ignore-daemonsets --delete-emptydir-data`: cordons the
 /// node and evicts its pods, respecting PodDisruptionBudgets.
 #[tauri::command]
-pub async fn node_drain(state: State<'_, AppState>, name: String) -> Result<DrainResult> {
-    node_cordon(state.clone(), name.clone(), true).await?;
-    let client = state.client()?;
+pub async fn node_drain(state: State<'_, AppState>, cluster: String, name: String) -> Result<DrainResult> {
+    node_cordon(state.clone(), cluster.clone(), name.clone(), true).await?;
+    let client = state.client(&cluster)?;
     let pods = Api::<Pod>::all(client.clone())
         .list(&ListParams::default().fields(&format!("spec.nodeName={name}")))
         .await?;
@@ -62,6 +62,7 @@ const NODE_SHELL: &str = "((clear && bash) || (clear && ash) || (clear && sh))";
 #[tauri::command]
 pub async fn node_shell_start(
     state: State<'_, AppState>,
+    cluster: String,
     session_id: String,
     node: String,
     cols: u16,
@@ -71,10 +72,9 @@ pub async fn node_shell_start(
     use kube::api::PostParams;
     use kube::runtime::wait::{await_condition, conditions::is_pod_running};
 
-    let client = state.client()?;
+    let client = state.client(&cluster)?;
     let (image, pull_secret) = {
-        let inner = state.0.lock().unwrap();
-        let p = &inner.prefs;
+        let p = state.prefs(&cluster)?;
         let nonempty = |s: &Option<String>| s.clone().filter(|s| !s.trim().is_empty());
         (nonempty(&p.node_shell_image).unwrap_or_else(|| NODE_SHELL_IMAGE.into()), nonempty(&p.node_shell_pull_secret))
     };
@@ -116,5 +116,5 @@ pub async fn node_shell_start(
         drop(cleanup);
         return Err(crate::error::Error::Other(format!("node shell pod {name} did not start within 90s")));
     }
-    crate::pods::start_exec(&state, session_id, pods, &name, None, NODE_SHELL, (cols, rows), on_event, Some(cleanup)).await
+    crate::pods::start_exec(&state, &cluster, session_id, pods, &name, None, NODE_SHELL, (cols, rows), on_event, Some(cleanup)).await
 }

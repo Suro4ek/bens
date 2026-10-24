@@ -32,6 +32,9 @@ in a native app built with Rust and Tauri.
 
 **Cluster browsing**
 - Catalog of all contexts from `~/.kube`, `$KUBECONFIG`, extra synced files/folders and pasted kubeconfigs.
+- Several clusters connected at once: their tabs share one strip ("Pods - prod", "Pods - staging"), the
+  Navigator shows each connected cluster's tree, and logs, shells and terminals keep running for their
+  own cluster while you look at another. Right-click a cluster to connect, reconnect or disconnect it.
 - Navigator tree, tabs, back/forward history and a command palette (`⌘K` / `Ctrl+K`).
 - Live tables for every resource type, including CRDs: search (case-sensitive and regex), sorting,
   namespace filter, bulk delete, export to CSV.

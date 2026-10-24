@@ -76,6 +76,8 @@ export type LogEvent =
 
 export interface ForwardInfo {
   id: string;
+  /** Catalog id of the cluster it forwards into. */
+  cluster: string;
   kind: "pod" | "service";
   namespace: string;
   name: string;
@@ -141,20 +143,20 @@ export interface WatchOptions {
 export type ExecEvent = { type: "data"; data: string } | { type: "exit"; message?: string };
 
 /**
- * Bumped on every connect and disconnect. Watches, metrics and charts key their
- * subscriptions on it: the same resource key (say `/v1/namespaces`) means a
- * different cluster after a switch, and the backend drops the old streams.
+ * Bumped per cluster on every connect and disconnect. Watches, metrics and
+ * charts key their subscriptions on it: reconnecting a cluster drops its
+ * backend streams, so everything that was listening has to subscribe again.
  */
-let epoch = 0;
+const epochs = new Map<string, number>();
 const epochListeners = new Set<() => void>();
 export const connectionEpoch = {
-  get: () => epoch,
+  get: (cluster: string) => epochs.get(cluster) ?? 0,
   subscribe(listener: () => void) {
     epochListeners.add(listener);
     return () => void epochListeners.delete(listener);
   },
-  bump() {
-    epoch++;
+  bump(cluster: string) {
+    epochs.set(cluster, (epochs.get(cluster) ?? 0) + 1);
     epochListeners.forEach((l) => l());
   },
 };
@@ -162,6 +164,7 @@ export const connectionEpoch = {
 let seq = 0;
 export const newId = (prefix: string) => `${prefix}-${Date.now().toString(36)}-${++seq}`;
 
+/** Calls that are not about one cluster: the catalog, preferences, terminals by session id, links. */
 export const api = {
   listContexts: () => invoke<Contexts>("list_contexts"),
   addKubeconfigText: (yaml: string) => invoke<number>("add_kubeconfig_text", { yaml }),
@@ -172,127 +175,112 @@ export const api = {
   readKubeconfig: (file: string) => invoke<string>("read_kubeconfig", { file }),
   writeKubeconfig: (file: string, yaml: string) => invoke<void>("write_kubeconfig", { file, yaml }),
   deleteContext: (file: string, context: string) => invoke<void>("delete_context", { file, context }),
+
+  /** Connects (or reconnects) a cluster; other connected clusters are left alone. */
   connect: (ctx: ContextInfo) =>
     invoke<Connection>("connect", { file: ctx.file, context: ctx.name }).then((c) => {
-      connectionEpoch.bump();
+      connectionEpoch.bump(ctx.id);
       return c;
     }),
-  disconnect: () => invoke<void>("disconnect").finally(connectionEpoch.bump),
+  disconnect: (cluster: string) => invoke<void>("disconnect", { cluster }).finally(() => connectionEpoch.bump(cluster)),
 
-  watch(key: string, namespace: string | null, onEvent: (e: WatchEvent) => void, opts: WatchOptions = {}) {
-    const watchId = newId("watch");
-    const ch = new Channel<WatchEvent>();
-    ch.onmessage = onEvent;
-    const started = invoke("watch_resources", { watchId, key, namespace, ...opts, onEvent: ch }).catch((e) =>
-      onEvent({ type: "error", message: String(e) }),
-    );
-    return () => {
-      ch.onmessage = () => {};
-      started.finally(() => invoke("stop_stream", { id: watchId }));
-    };
-  },
-
-  getYaml: (key: string, namespace: string | undefined, name: string) =>
-    invoke<string>("get_yaml", { key, namespace, name }),
-  applyYaml: (key: string, namespace: string | undefined, name: string, yaml: string) =>
-    invoke<string>("apply_yaml", { key, namespace, name, yaml }),
-  delete: (key: string, namespace: string | undefined, name: string) =>
-    invoke<void>("delete_resource", { key, namespace, name }),
-  scale: (key: string, namespace: string | undefined, name: string, replicas: number) =>
-    invoke<void>("scale_resource", { key, namespace, name, replicas }),
-  restart: (key: string, namespace: string | undefined, name: string) =>
-    invoke<void>("restart_rollout", { key, namespace, name }),
-
-  logs(
-    opts: {
-      namespace: string;
-      pod: string;
-      container?: string;
-      tailLines?: number;
-      previous: boolean;
-      timestamps: boolean;
-    },
-    onEvent: (e: LogEvent) => void,
-  ) {
-    const streamId = newId("logs");
-    const ch = new Channel<LogEvent>();
-    ch.onmessage = onEvent;
-    const started = invoke("stream_logs", { streamId, ...opts, onEvent: ch }).catch((e) =>
-      onEvent({ type: "error", message: String(e) }),
-    );
-    return () => {
-      ch.onmessage = () => {};
-      started.finally(() => invoke("stop_stream", { id: streamId }));
-    };
-  },
-
-  execStart: (
-    sessionId: string,
-    opts: { namespace: string; pod: string; container?: string; cols: number; rows: number },
-    onEvent: (e: ExecEvent) => void,
-  ) => {
-    const ch = new Channel<ExecEvent>();
-    ch.onmessage = onEvent;
-    return invoke<void>("exec_start", { sessionId, ...opts, onEvent: ch });
-  },
-  localTerminalStart: (sessionId: string, opts: { cols: number; rows: number }, onEvent: (e: ExecEvent) => void) => {
-    const ch = new Channel<ExecEvent>();
-    ch.onmessage = onEvent;
-    return invoke<void>("local_terminal_start", { sessionId, ...opts, onEvent: ch });
-  },
-  nodeShellStart: (
-    sessionId: string,
-    opts: { node: string; cols: number; rows: number },
-    onEvent: (e: ExecEvent) => void,
-  ) => {
-    const ch = new Channel<ExecEvent>();
-    ch.onmessage = onEvent;
-    return invoke<void>("node_shell_start", { sessionId, ...opts, onEvent: ch });
-  },
+  // Sessions are addressed by id, whichever cluster they belong to.
   execInput: (sessionId: string, data: string) => invoke<void>("exec_input", { sessionId, data }),
-  execResize: (sessionId: string, cols: number, rows: number) =>
-    invoke<void>("exec_resize", { sessionId, cols, rows }),
+  execResize: (sessionId: string, cols: number, rows: number) => invoke<void>("exec_resize", { sessionId, cols, rows }),
   execStop: (sessionId: string) => invoke<void>("exec_stop", { sessionId }),
-
-  getMetrics: (scope: "pods" | "nodes", namespace?: string | null) =>
-    invoke<KubeObject[]>("get_metrics", { scope, namespace }),
-
-  portForwardStart: (kind: "pod" | "service", namespace: string, name: string, remotePort: number, localPort?: number) =>
-    invoke<ForwardInfo>("port_forward_start", { kind, namespace, name, remotePort, localPort }),
+  stopStream: (id: string) => invoke<void>("stop_stream", { id }),
   portForwardList: () => invoke<ForwardInfo[]>("port_forward_list"),
   portForwardStop: (id: string) => invoke<void>("port_forward_stop", { id }),
-
-  applyManifest: (yaml: string, namespace: string | null) => invoke<string[]>("apply_manifest", { yaml, namespace }),
-
-  nodeCordon: (name: string, unschedulable: boolean) => invoke<void>("node_cordon", { name, unschedulable }),
-  nodeDrain: (name: string) => invoke<DrainResult>("node_drain", { name }),
-
-  helmList: (namespace: string | null) => invoke<HelmRelease[]>("helm_list", { namespace }),
-  helmGet: (namespace: string, name: string) => invoke<HelmDetails>("helm_get", { namespace, name }),
-  helmRollback: (namespace: string, name: string, revision: number) =>
-    invoke<string>("helm_rollback", { namespace, name, revision }),
-  helmUninstall: (namespace: string, name: string) => invoke<string>("helm_uninstall", { namespace, name }),
-
-  patch: (key: string, namespace: string | undefined, name: string, patch: unknown) =>
-    invoke<void>("patch_resource", { key, namespace, name, patch }),
-
-  prometheusDetect: () => invoke<PromService | null>("prometheus_detect"),
-  prometheusRange: (query: string, start: number, end: number, step: number) =>
-    invoke<PromSeries[]>("prometheus_query_range", { query, start, end, step }),
-
-  costFindService: (selectors: string[], preferredPort: number) =>
-    invoke<string | null>("cost_find_service", { selectors, preferredPort }),
-  serviceProxyGet: (address: string, path: string, query: Record<string, string>) =>
-    invoke<unknown>("service_proxy_get", { address, path, query: Object.entries(query) }),
 
   helmRepoList: () => invoke<HelmRepo[]>("helm_repo_list"),
   helmRepoAdd: (name: string, url: string) => invoke<string>("helm_repo_add", { name, url }),
   helmRepoUpdate: () => invoke<string>("helm_repo_update"),
   helmSearch: (query: string, versions = false) => invoke<ChartHit[]>("helm_search", { query, versions }),
   helmShowValues: (chart: string, version: string) => invoke<string>("helm_show_values", { chart, version }),
-  helmInstall: (name: string, namespace: string, chart: string, version: string, values: string) =>
-    invoke<string>("helm_install", { name, namespace, chart, version, values }),
 
   openUrl: (url: string) => openUrl(url),
   reveal: (path: string) => revealItemInDir(path),
 };
+
+/** Calls against one connected cluster, by its catalog id. */
+function makeClusterApi(cluster: string) {
+  const call = <T>(cmd: string, args: Record<string, unknown> = {}) => invoke<T>(cmd, { cluster, ...args });
+  /** Starts a backend stream that reports through a channel; returns its stop function. */
+  const stream = <E>(cmd: string, prefix: string, args: Record<string, unknown>, onEvent: (e: E) => void, onError: (msg: string) => void) => {
+    const id = newId(prefix);
+    const ch = new Channel<E>();
+    ch.onmessage = onEvent;
+    const started = call(cmd, { ...args, [prefix === "watch" ? "watchId" : "streamId"]: id, onEvent: ch }).catch((e) => onError(String(e)));
+    return () => {
+      ch.onmessage = () => {};
+      started.finally(() => api.stopStream(id));
+    };
+  };
+  const session = (cmd: string, sessionId: string, args: Record<string, unknown>, onEvent: (e: ExecEvent) => void) => {
+    const ch = new Channel<ExecEvent>();
+    ch.onmessage = onEvent;
+    return call<void>(cmd, { sessionId, ...args, onEvent: ch });
+  };
+
+  return {
+    cluster,
+    watch: (key: string, namespace: string | null, onEvent: (e: WatchEvent) => void, opts: WatchOptions = {}) =>
+      stream<WatchEvent>("watch_resources", "watch", { key, namespace, ...opts }, onEvent, (message) => onEvent({ type: "error", message })),
+    logs: (
+      opts: { namespace: string; pod: string; container?: string; tailLines?: number; previous: boolean; timestamps: boolean },
+      onEvent: (e: LogEvent) => void,
+    ) => stream<LogEvent>("stream_logs", "logs", opts, onEvent, (message) => onEvent({ type: "error", message })),
+
+    getYaml: (key: string, namespace: string | undefined, name: string) => call<string>("get_yaml", { key, namespace, name }),
+    applyYaml: (key: string, namespace: string | undefined, name: string, yaml: string) =>
+      call<string>("apply_yaml", { key, namespace, name, yaml }),
+    delete: (key: string, namespace: string | undefined, name: string) => call<void>("delete_resource", { key, namespace, name }),
+    scale: (key: string, namespace: string | undefined, name: string, replicas: number) =>
+      call<void>("scale_resource", { key, namespace, name, replicas }),
+    restart: (key: string, namespace: string | undefined, name: string) => call<void>("restart_rollout", { key, namespace, name }),
+    patch: (key: string, namespace: string | undefined, name: string, patch: unknown) =>
+      call<void>("patch_resource", { key, namespace, name, patch }),
+    applyManifest: (yaml: string, namespace: string | null) => call<string[]>("apply_manifest", { yaml, namespace }),
+
+    execStart: (
+      sessionId: string,
+      opts: { namespace: string; pod: string; container?: string; cols: number; rows: number },
+      onEvent: (e: ExecEvent) => void,
+    ) => session("exec_start", sessionId, opts, onEvent),
+    localTerminalStart: (sessionId: string, opts: { cols: number; rows: number }, onEvent: (e: ExecEvent) => void) =>
+      session("local_terminal_start", sessionId, opts, onEvent),
+    nodeShellStart: (sessionId: string, opts: { node: string; cols: number; rows: number }, onEvent: (e: ExecEvent) => void) =>
+      session("node_shell_start", sessionId, opts, onEvent),
+
+    getMetrics: (scope: "pods" | "nodes", namespace?: string | null) => call<KubeObject[]>("get_metrics", { scope, namespace }),
+    portForwardStart: (kind: "pod" | "service", namespace: string, name: string, remotePort: number, localPort?: number) =>
+      call<ForwardInfo>("port_forward_start", { kind, namespace, name, remotePort, localPort }),
+
+    nodeCordon: (name: string, unschedulable: boolean) => call<void>("node_cordon", { name, unschedulable }),
+    nodeDrain: (name: string) => call<DrainResult>("node_drain", { name }),
+
+    helmList: (namespace: string | null) => call<HelmRelease[]>("helm_list", { namespace }),
+    helmGet: (namespace: string, name: string) => call<HelmDetails>("helm_get", { namespace, name }),
+    helmRollback: (namespace: string, name: string, revision: number) => call<string>("helm_rollback", { namespace, name, revision }),
+    helmUninstall: (namespace: string, name: string) => call<string>("helm_uninstall", { namespace, name }),
+    helmInstall: (name: string, namespace: string, chart: string, version: string, values: string) =>
+      call<string>("helm_install", { name, namespace, chart, version, values }),
+
+    prometheusDetect: () => call<PromService | null>("prometheus_detect"),
+    prometheusRange: (query: string, start: number, end: number, step: number) =>
+      call<PromSeries[]>("prometheus_query_range", { query, start, end, step }),
+    costFindService: (selectors: string[], preferredPort: number) => call<string | null>("cost_find_service", { selectors, preferredPort }),
+    serviceProxyGet: (address: string, path: string, query: Record<string, string>) =>
+      call<unknown>("service_proxy_get", { address, path, query: Object.entries(query) }),
+  };
+}
+
+export type ClusterApi = ReturnType<typeof makeClusterApi>;
+
+const clusterApis = new Map<string, ClusterApi>();
+/** The API of one cluster; the same object every time, so it can be a hook dependency. */
+export function clusterApi(cluster: string): ClusterApi {
+  let a = clusterApis.get(cluster);
+  if (!a) clusterApis.set(cluster, (a = makeClusterApi(cluster)));
+  return a;
+}

@@ -7,12 +7,15 @@ import { LogsSource, LogsView } from "./LogsView";
 import { ShellView } from "./ShellView";
 import { CreateView, YamlView } from "./YamlView";
 import { ContextMenu, tabMenuItems } from "./ObjectMenu";
+import { ClusterContext } from "../clusterContext";
 
-export type DockTab =
-  | { id: string; type: "logs"; title: string; source: LogsSource; container?: string }
-  | { id: string; type: "shell"; title: string; pod?: KubeObject; node?: string; container?: string }
-  | { id: string; type: "yaml"; title: string; resource: ResourceInfo; obj: KubeObject }
-  | { id: string; type: "create"; title: string; namespace: string | null };
+/** A dock tab, bound to the cluster it was opened for (it keeps running while other clusters are shown). */
+export type DockTab = { id: string; cluster: string; title: string } & (
+  | { type: "logs"; source: LogsSource; container?: string }
+  | { type: "shell"; pod?: KubeObject; node?: string; container?: string }
+  | { type: "yaml"; resource: ResourceInfo; obj: KubeObject }
+  | { type: "create"; namespace: string | null }
+);
 
 interface Props {
   tabs: DockTab[];
@@ -21,12 +24,14 @@ interface Props {
   onClose: (id: string) => void;
   onCloseMany: (ids: string[], fallback?: string) => void;
   onNewTerminal: () => void;
+  /** Cluster name shown on the tab when several clusters are connected. */
+  clusterLabel?: (cluster: string) => string | undefined;
 }
 
 const HEIGHT_KEY = "dockHeight";
 
 /** Bottom dock (terminals, logs, editors): the tab strip is always there. */
-export function Dock({ tabs, active, onActivate, onClose, onCloseMany, onNewTerminal }: Props) {
+export function Dock({ tabs, active, onActivate, onClose, onCloseMany, onNewTerminal, clusterLabel }: Props) {
   const [tabMenu, setTabMenu] = useState<{ x: number; y: number; id: string } | null>(null);
   const [height, setHeight] = useState(() => Number(storage.get(HEIGHT_KEY)) || 320);
   const [collapsed, setCollapsed] = useState(false);
@@ -78,10 +83,13 @@ export function Dock({ tabs, active, onActivate, onClose, onCloseMany, onNewTerm
                 e.preventDefault();
                 setTabMenu({ x: e.clientX, y: e.clientY, id: t.id });
               }}
-              title={t.title}
+              title={clusterLabel?.(t.cluster) ? `${t.title} - ${clusterLabel(t.cluster)}` : t.title}
             >
               <Icon size={14} className="dock-icon" />
-              <span className="dock-title">{t.title}</span>
+              <span className="dock-title">
+                {t.title}
+                {clusterLabel?.(t.cluster) && <span className="muted"> - {clusterLabel(t.cluster)}</span>}
+              </span>
               <button
                 className="icon"
                 onClick={(e) => {
@@ -119,10 +127,12 @@ export function Dock({ tabs, active, onActivate, onClose, onCloseMany, onNewTerm
       {tabs.map((t) => (
         // All tabs stay mounted so shells and log streams survive tab switches and collapsing.
         <div key={t.id} className="dock-body" style={{ display: open && t.id === active ? "flex" : "none" }}>
-          {t.type === "logs" && <LogsView source={t.source} initialContainer={t.container} />}
-          {t.type === "shell" && <ShellView pod={t.pod} node={t.node} container={t.container} active={t.id === active && open} />}
-          {t.type === "yaml" && <YamlView resource={t.resource} obj={t.obj} />}
-          {t.type === "create" && <CreateView namespace={t.namespace} />}
+          <ClusterContext.Provider value={t.cluster}>
+            {t.type === "logs" && <LogsView source={t.source} initialContainer={t.container} />}
+            {t.type === "shell" && <ShellView pod={t.pod} node={t.node} container={t.container} active={t.id === active && open} />}
+            {t.type === "yaml" && <YamlView resource={t.resource} obj={t.obj} />}
+            {t.type === "create" && <CreateView namespace={t.namespace} />}
+          </ClusterContext.Provider>
         </div>
       ))}
     </div>

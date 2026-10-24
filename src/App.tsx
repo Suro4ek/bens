@@ -1,42 +1,47 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api, Connection, ContextInfo, Contexts, KubeObject, newId, ResourceInfo } from "./api";
 import { Catalog } from "./components/Catalog";
-import { MainTabs, StatusBar, TitleBar } from "./components/Chrome";
+import { MainTab, MainTabs, StatusBar, TitleBar } from "./components/Chrome";
 import { ClusterSettings } from "./components/ClusterSettings";
+import { ClusterView, Navigate } from "./components/ClusterView";
 import { Preferences } from "./components/Preferences";
 import { Command, CommandPalette } from "./components/CommandPalette";
-import { DetailsPanel } from "./components/DetailsPanel";
+import type { DockActions } from "./components/DetailsPanel";
 import { Dock, DockTab } from "./components/Dock";
 import { resetPrometheus } from "./components/Charts";
-import { ArgoDashboard, FluxDashboard } from "./components/GitOpsDashboards";
-import { CostDashboard } from "./components/CostDashboard";
-import { HelmReleases } from "./components/HelmReleases";
 import { Hotbar } from "./components/Hotbar";
-import { ALL_NAMESPACES as ALL, NamespaceContext } from "./components/NamespaceSelect";
+import { ALL_NAMESPACES as ALL } from "./components/NamespaceSelect";
 import { Navigator } from "./components/Navigator";
-import { Overview } from "./components/Overview";
-import { PortForwards } from "./components/PortForwards";
-import { ResourceTable } from "./components/ResourceTable";
-import { ARGO, COST, FLUX, HELM, navId, OVERVIEW, PORT_FORWARDS, pluralTitle, SPECIAL_VIEWS, viewTitle } from "./nav";
-import { useMetrics } from "./useMetrics";
-import type { Column } from "./columns";
-import { allocatedInSlice, allocationMap, CLAIMS, SLICES } from "./dra";
-import { useWatch } from "./useWatch";
-import { storage } from "./util";
-import { clusterColor, clusterName, getAppPrefs, saveClusterPrefs, setActiveCluster, usePrefs } from "./prefs";
-import { clusterMenuItems } from "./clusterMenu";
 import { ContextMenu } from "./components/ObjectMenu";
+import { ARGO, COST, FLUX, HELM, navId, OVERVIEW, PORT_FORWARDS, pluralTitle, viewTitle } from "./nav";
+import { clusterMenuItems } from "./clusterMenu";
+import { storage } from "./util";
+import { clusterColor, clusterName, getAppPrefs, saveClusterPrefs, usePrefs } from "./prefs";
 
 /** The catalog of clusters; available with or without a connection. */
 const CATALOG = "catalog";
-const MAX_TABS = 15;
+const MAX_TABS = 30;
+
+/**
+ * Main tabs of all connected clusters share one strip, as "Pods - minikube".
+ * A tab id is the cluster's catalog id and the view id; the catalog's is CATALOG.
+ */
+const SEP = "::";
+export const tabId = (cluster: string, view: string) => `${cluster}${SEP}${view}`;
+export function parseTab(id: string | undefined): { cluster: string; view: string } | null {
+  if (!id || id === CATALOG) return null;
+  const i = id.lastIndexOf(SEP);
+  return i < 0 ? null : { cluster: id.slice(0, i), view: id.slice(i + SEP.length) };
+}
+const clusterOf = (id: string | undefined) => parseTab(id)?.cluster;
 
 interface HistoryEntry {
-  view: string;
+  tab: string;
   selected?: string;
 }
 
-const savedTabs = (id: string): string[] => {
+/** Views a cluster had open last time (its tabs are reopened on connect). */
+const savedViews = (id: string): string[] => {
   try {
     const t = JSON.parse(storage.get(`tabs:${id}`) ?? "null");
     return Array.isArray(t) && t.length ? t : [OVERVIEW];
@@ -45,31 +50,57 @@ const savedTabs = (id: string): string[] => {
   }
 };
 
+/** Clusters that were connected when the app was closed. */
+function savedOpenClusters(): string[] {
+  try {
+    const list = JSON.parse(storage.get("openClusters") ?? "null");
+    if (Array.isArray(list)) return list;
+  } catch {
+    /* fall back to the single last cluster */
+  }
+  const last = storage.get("lastContext");
+  return last ? [last] : [];
+}
+
 export default function App() {
   const [contexts, setContexts] = useState<Contexts>({ contexts: [], sources: [] });
-  const [conn, setConn] = useState<Connection | null>(null);
-  const [activeId, setActiveId] = useState<string>();
-  const [connecting, setConnecting] = useState<string>();
+  /** Connected clusters by catalog id. Several can be connected at once. */
+  const [connections, setConnections] = useState<Record<string, Connection>>({});
+  const [connecting, setConnecting] = useState<string[]>([]);
   const [error, setError] = useState<string>();
-  /** Open main tabs (view ids) and the active one. */
   const [mainTabs, setMainTabs] = useState<string[]>([CATALOG]);
-  const [view, setView] = useState<string | undefined>(CATALOG);
-  const [namespace, setNamespace] = useState<string>(ALL);
-  const [selected, setSelected] = useState<string>();
-  const [tabs, setTabs] = useState<DockTab[]>([]);
-  const [activeTab, setActiveTab] = useState<string>();
+  const [activeTab, setActiveTab] = useState<string>(CATALOG);
+  /** Selected object per main tab. */
+  const [selection, setSelection] = useState<Record<string, string | undefined>>({});
+  /** Namespace filter per cluster (ALL for all namespaces). */
+  const [namespaces, setNamespaces] = useState<Record<string, string>>({});
+  const [namespaceNames, setNamespaceNames] = useState<Record<string, string[]>>({});
+  const [dockTabs, setDockTabs] = useState<DockTab[]>([]);
+  const [activeDock, setActiveDock] = useState<string>();
+  /** The cluster last on screen: where new terminals and "Create" go while the catalog is shown. */
+  const [focused, setFocused] = useState<string>();
   const [palette, setPalette] = useState(false);
   const [toast, setToast] = useState<{ text: string; tone: "ok" | "bad" } | null>(null);
-  /** Full-page settings shown over the current view (which stays mounted). */
   const [clusterMenu, setClusterMenu] = useState<{ ctx: ContextInfo; x: number; y: number } | null>(null);
   const openClusterMenu = useCallback((ctx: ContextInfo, x: number, y: number) => setClusterMenu({ ctx, x, y }), []);
+  /** Full-page settings shown over the current view (which stays mounted). */
   const [page, setPage] = useState<{ kind: "prefs" } | { kind: "cluster"; id: string; section?: string } | null>(null);
+  const [detailsSlot, setDetailsSlot] = useState<HTMLDivElement | null>(null);
   const prefs = usePrefs();
-  const clusterPrefs = activeId ? prefs.clusters[activeId] : undefined;
-  const connectSeq = useRef(0);
   const autoConnected = useRef(false);
-  const history = useRef<{ entries: HistoryEntry[]; index: number }>({ entries: [{ view: CATALOG }], index: 0 });
+  const history = useRef<{ entries: HistoryEntry[]; index: number }>({ entries: [{ tab: CATALOG }], index: 0 });
   const [, setHistoryTick] = useState(0);
+  // Current values for callbacks that outlive a render (connect, disconnect).
+  const live = useRef({ mainTabs, activeTab });
+  live.current = { mainTabs, activeTab };
+
+  const current = parseTab(activeTab);
+  const focusedCluster = current?.cluster ?? (focused && connections[focused] ? focused : undefined);
+  const contextOf = (id?: string) => contexts.contexts.find((c) => c.id === id);
+  const labelOf = (id: string) => {
+    const c = contextOf(id);
+    return c ? clusterName(c, prefs.clusters[id]) : id;
+  };
 
   const notify = useCallback((text: string, tone: "ok" | "bad" = "ok") => {
     setToast({ text, tone });
@@ -84,247 +115,251 @@ export default function App() {
   }, []);
   useEffect(refreshContexts, [refreshContexts]);
 
-  const resetHistory = (entry: HistoryEntry) => {
-    history.current = { entries: [entry], index: 0 };
+  const pushHistory = (tab: string, selected?: string) => {
+    const h = history.current;
+    const cur = h.entries[h.index];
+    if (cur?.tab === tab && cur?.selected === selected) return;
+    h.entries = [...h.entries.slice(0, h.index + 1), { tab, selected }].slice(-100);
+    h.index = h.entries.length - 1;
     setHistoryTick((n) => n + 1);
   };
 
-  const connect = useCallback(async (ctx: ContextInfo) => {
-    const seq = ++connectSeq.current;
-    setConnecting(ctx.id);
-    setError(undefined);
-    try {
-      const c = await api.connect(ctx);
-      if (seq !== connectSeq.current) return;
-      resetPrometheus();
-      setConn(c);
-      setActiveId(ctx.id);
-      setTabs([]);
-      setSelected(undefined);
-      setNamespace(storage.get(`ns:${ctx.id}`) ?? ALL);
-      const open = savedTabs(ctx.id);
-      const last = storage.get(`view:${ctx.id}`);
-      const v = last && open.includes(last) ? last : open[0];
-      setMainTabs(open);
-      setView(v);
-      resetHistory({ view: v });
-      storage.set("lastContext", ctx.id);
-    } catch (e) {
-      if (seq !== connectSeq.current) return;
-      setError(`${ctx.name}: ${e}`);
-      setView(CATALOG);
-      setMainTabs((t) => (t.includes(CATALOG) ? t : [CATALOG, ...t]));
-    } finally {
-      if (seq === connectSeq.current) setConnecting(undefined);
-    }
-  }, []);
-
-  // Reopen the cluster that was open last time.
-  useEffect(() => {
-    if (autoConnected.current || !contexts.contexts.length) return;
-    autoConnected.current = true;
-    const last = contexts.contexts.find((c) => c.id === storage.get("lastContext"));
-    if (last && getAppPrefs().reconnectLast) connect(last);
-  }, [contexts, connect]);
-
-  const disconnect = useCallback(() => {
-    connectSeq.current++;
-    setConnecting(undefined);
-    setConn(null);
-    setActiveId(undefined);
-    setTabs([]);
-    setMainTabs([CATALOG]);
-    setView(CATALOG);
-    resetHistory({ view: CATALOG });
-    storage.set("lastContext", "");
-    api.disconnect();
-    refreshContexts();
-  }, [refreshContexts]);
-
-  useEffect(() => setActiveCluster(activeId), [activeId]);
-
-  // Remember open tabs per cluster.
-  useEffect(() => {
-    if (!activeId) return;
-    storage.set(`tabs:${activeId}`, JSON.stringify(mainTabs.filter((t) => t !== CATALOG)));
-    if (view && view !== CATALOG) storage.set(`view:${activeId}`, view);
-  }, [activeId, mainTabs, view]);
-
-  const byNav = useMemo(() => new Map((conn?.resources ?? []).map((r) => [navId(r), r])), [conn]);
-  const resource = view && conn && !(view in SPECIAL_VIEWS) && view !== CATALOG ? byNav.get(view) : undefined;
-  const nsParam = namespace === ALL ? null : namespace;
-  const namespaces = useWatch(conn ? byNav.get("/namespaces")?.key : undefined, null);
-  // Namespaces from the cluster plus the ones configured as accessible (for users who can't list them).
-  const namespaceNames = useMemo(
-    () =>
-      [...new Set([...namespaces.items.map((n) => n.metadata.name), ...(clusterPrefs?.accessibleNamespaces ?? [])])].sort(),
-    [namespaces.items, clusterPrefs?.accessibleNamespaces],
-  );
-  const watch = useWatch(resource?.key, resource?.namespaced ? nsParam : null);
-  // Selection is a uid, or `ref:<namespace>/<name>` when navigating by name (e.g. from Argo CD resources).
-  const selectedObj = watch.items.find(
-    (o) => o.metadata.uid === selected || `ref:${o.metadata.namespace ?? ""}/${o.metadata.name}` === selected,
-  );
-
-  // Resource Slices show how many of their devices are allocated, which only the claims know.
-  const claimsKey = conn?.resources.find((r) => navId(r) === CLAIMS)?.key;
-  const claims = useWatch(view === SLICES ? claimsKey : undefined, null);
-  const sliceColumns = useMemo((): Column[] | undefined => {
-    if (view !== SLICES || !claimsKey || claims.error) return undefined;
-    const map = allocationMap(claims.items);
-    return [{ title: "Allocated", value: (o) => allocatedInSlice(o, map), width: "90px" }];
-  }, [view, claimsKey, claims.items, claims.error]);
-
-  const metricsOn = !!conn?.metrics;
-  const podMetrics = useMetrics("pods", nsParam, metricsOn && view === "/pods");
-  const nodeMetrics = useMetrics("nodes", null, metricsOn && (view === "/nodes" || view === OVERVIEW));
-
-  /** Shows a view: focuses its tab or opens a new one. */
-  const show = useCallback((id: string, sel?: string) => {
+  /** Shows a tab: focuses it or opens it, like Lens. */
+  const show = useCallback((tab: string, sel?: string) => {
     setMainTabs((t) => {
-      if (t.includes(id)) return t;
-      const next = [...t, id];
+      if (t.includes(tab)) return t;
+      const next = [...t, tab];
       return next.length > MAX_TABS ? next.slice(next.length - MAX_TABS) : next;
     });
-    setView(id);
-    setSelected(sel);
+    setActiveTab(tab);
+    setSelection((s) => ({ ...s, [tab]: sel }));
   }, []);
 
   const navigate = useCallback(
-    (id: string, uid?: string, ref?: { namespace?: string; name: string }) => {
-      const sel = ref ? `ref:${ref.namespace ?? ""}/${ref.name}` : uid;
-      show(id, sel);
-      // Make sure the target is visible under the namespace filter.
-      if (ref?.namespace && namespace !== ALL && ref.namespace !== namespace) setNamespace(ALL);
-      const h = history.current;
-      const cur = h.entries[h.index];
-      if (cur?.view !== id || cur?.selected !== sel) {
-        h.entries = [...h.entries.slice(0, h.index + 1), { view: id, selected: sel }].slice(-100);
-        h.index = h.entries.length - 1;
-        setHistoryTick((n) => n + 1);
+    (tab: string, sel?: string) => {
+      show(tab, sel);
+      pushHistory(tab, sel);
+    },
+    [show],
+  );
+
+  /** Navigation inside one cluster (Navigator, links in details, dashboards). */
+  const navigateIn = useCallback(
+    (cluster: string): Navigate =>
+      (view, uid, ref) => {
+        navigate(tabId(cluster, view), ref ? `ref:${ref.namespace ?? ""}/${ref.name}` : uid);
+        // Make sure the target is visible under the namespace filter.
+        if (ref?.namespace)
+          setNamespaces((n) => (n[cluster] && n[cluster] !== ALL && n[cluster] !== ref.namespace ? { ...n, [cluster]: ALL } : n));
+      },
+    [navigate],
+  );
+
+  /** Brings a connected cluster to the front: its last view, or Overview. */
+  const focusCluster = useCallback(
+    (id: string) => {
+      const tabs = live.current.mainTabs.filter((t) => clusterOf(t) === id);
+      const last = storage.get(`view:${id}`);
+      const tab = last && tabs.includes(tabId(id, last)) ? tabId(id, last) : (tabs.at(-1) ?? tabId(id, OVERVIEW));
+      navigate(tab);
+    },
+    [navigate],
+  );
+
+  const connect = useCallback(
+    async (ctx: ContextInfo) => {
+      setConnecting((c) => [...c.filter((x) => x !== ctx.id), ctx.id]);
+      setError(undefined);
+      try {
+        const c = await api.connect(ctx);
+        resetPrometheus(ctx.id);
+        setConnections((m) => ({ ...m, [ctx.id]: c }));
+        setNamespaces((n) => ({ ...n, [ctx.id]: n[ctx.id] ?? storage.get(`ns:${ctx.id}`) ?? ALL }));
+        storage.set("lastContext", ctx.id);
+        // A reconnect keeps the cluster's tabs; a new connection reopens the ones it had last time.
+        const open = live.current.mainTabs.filter((t) => clusterOf(t) === ctx.id);
+        if (!open.length) {
+          const views = savedViews(ctx.id);
+          // Opened from the catalog: the cluster's tabs take its place.
+          const dropCatalog = live.current.activeTab === CATALOG;
+          setMainTabs((t) => [
+            ...t.filter((x) => !(dropCatalog && x === CATALOG)),
+            ...views.map((v) => tabId(ctx.id, v)).filter((x) => !t.includes(x)),
+          ]);
+          const last = storage.get(`view:${ctx.id}`);
+          navigate(tabId(ctx.id, last && views.includes(last) ? last : views[0]));
+        } else if (clusterOf(live.current.activeTab) !== ctx.id) {
+          focusCluster(ctx.id);
+        }
+      } catch (e) {
+        setError(`${ctx.name}: ${e}`);
+        setMainTabs((t) => (t.includes(CATALOG) ? t : [CATALOG, ...t]));
+        navigate(CATALOG);
+      } finally {
+        setConnecting((c) => c.filter((x) => x !== ctx.id));
       }
     },
-    [namespace, show],
+    [navigate, focusCluster],
   );
+
+  /** Catalog, hotbar: show a connected cluster, connect another one. */
+  const openCluster = useCallback(
+    (ctx: ContextInfo) => (connections[ctx.id] ? focusCluster(ctx.id) : connect(ctx)),
+    [connections, focusCluster, connect],
+  );
+
+  // Reopen the clusters that were connected last time.
+  useEffect(() => {
+    if (autoConnected.current || !contexts.contexts.length) return;
+    autoConnected.current = true;
+    if (!getAppPrefs().reconnectLast) return;
+    for (const id of savedOpenClusters()) {
+      const ctx = contexts.contexts.find((c) => c.id === id);
+      if (ctx) connect(ctx);
+    }
+  }, [contexts, connect]);
+
+  const disconnect = useCallback(
+    (id: string) => {
+      api.disconnect(id);
+      setConnections(({ [id]: _, ...rest }) => rest);
+      const remaining = live.current.mainTabs.filter((t) => clusterOf(t) !== id);
+      const tabs = remaining.length ? remaining : [CATALOG];
+      setMainTabs(tabs);
+      if (clusterOf(live.current.activeTab) === id) setActiveTab(tabs.at(-1)!);
+      setDockTabs((t) => t.filter((x) => x.cluster !== id));
+      const h = history.current;
+      h.entries = h.entries.filter((e) => clusterOf(e.tab) !== id);
+      if (!h.entries.length) h.entries = [{ tab: CATALOG }];
+      h.index = h.entries.length - 1;
+      setHistoryTick((n) => n + 1);
+      refreshContexts();
+    },
+    [refreshContexts],
+  );
+
+  // Remember which clusters are connected, and each one's tabs and last view.
+  useEffect(() => {
+    if (!autoConnected.current) return;
+    storage.set("openClusters", JSON.stringify(Object.keys(connections)));
+  }, [connections]);
+  useEffect(() => {
+    for (const id of Object.keys(connections)) {
+      const views = mainTabs.filter((t) => clusterOf(t) === id).map((t) => parseTab(t)!.view);
+      if (views.length) storage.set(`tabs:${id}`, JSON.stringify(views));
+    }
+  }, [connections, mainTabs]);
+  useEffect(() => {
+    if (!current) return;
+    setFocused(current.cluster);
+    storage.set(`view:${current.cluster}`, current.view);
+    storage.set("lastContext", current.cluster);
+  }, [current?.cluster, current?.view]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const go = (delta: number) => {
     const h = history.current;
-    const i = h.index + delta;
+    let i = h.index + delta;
+    // Skip entries of clusters that were disconnected since.
+    while (i >= 0 && i < h.entries.length && clusterOf(h.entries[i].tab) && !connections[clusterOf(h.entries[i].tab)!]) i += delta;
     if (i < 0 || i >= h.entries.length) return;
     h.index = i;
-    const e = h.entries[i];
-    if (!conn && e.view !== CATALOG) return;
-    show(e.view, e.selected);
+    show(h.entries[i].tab, h.entries[i].selected);
     setHistoryTick((n) => n + 1);
   };
 
-  const closeMainTab = (id: string) => {
-    setMainTabs((t) => {
-      const i = t.indexOf(id);
-      const next = t.filter((x) => x !== id);
-      if (id === view) {
-        setView(next[Math.min(i, next.length - 1)]);
-        setSelected(undefined);
-      }
-      return next;
-    });
-  };
-
-  /** Closes several tabs at once (tab menu); `fallback` becomes active if the current one closes. */
+  /** Closes tabs; `fallback` becomes active if the current one closes. */
   const closeMainTabs = (ids: string[], fallback?: string) => {
-    setMainTabs((t) => {
-      const next = t.filter((x) => !ids.includes(x));
-      if (view && ids.includes(view)) {
-        setView(fallback && next.includes(fallback) ? fallback : next[next.length - 1]);
-        setSelected(undefined);
-      }
-      return next;
-    });
+    const next = mainTabs.filter((x) => !ids.includes(x));
+    setMainTabs(next.length ? next : [CATALOG]);
+    if (ids.includes(activeTab)) {
+      const i = mainTabs.indexOf(activeTab);
+      setActiveTab(fallback && next.includes(fallback) ? fallback : (next[Math.min(i, next.length - 1)] ?? CATALOG));
+    }
   };
+  const closeMainTab = (id: string) => closeMainTabs([id]);
 
-  // Keep the selection in sync with the browser-like history when the details panel changes.
-  const select = (uid?: string) => {
-    setSelected(uid);
+  const select = (sel?: string) => {
+    setSelection((s) => ({ ...s, [activeTab]: sel }));
     const h = history.current;
     const cur = h.entries[h.index];
-    if (cur && view) h.entries[h.index] = { ...cur, view, selected: uid };
+    if (cur) h.entries[h.index] = { tab: activeTab, selected: sel };
   };
 
-  const openTab = (tab: DockTab) => {
-    setTabs((t) => [...t, tab]);
-    setActiveTab(tab.id);
+  const openDock = (tab: DockTab) => {
+    setDockTabs((t) => [...t, tab]);
+    setActiveDock(tab.id);
   };
-  const closeTabs = (ids: string[], fallback?: string) =>
-    setTabs((t) => {
+  const closeDockTabs = (ids: string[], fallback?: string) =>
+    setDockTabs((t) => {
       const next = t.filter((x) => !ids.includes(x.id));
-      if (activeTab && ids.includes(activeTab)) setActiveTab(fallback && next.some((x) => x.id === fallback) ? fallback : next[next.length - 1]?.id);
+      if (activeDock && ids.includes(activeDock))
+        setActiveDock(fallback && next.some((x) => x.id === fallback) ? fallback : next[next.length - 1]?.id);
       return next;
     });
-  const closeTab = (id: string) =>
-    setTabs((t) => {
-      const next = t.filter((x) => x.id !== id);
-      if (id === activeTab) setActiveTab(next[next.length - 1]?.id);
-      return next;
-    });
+  const closeDockTab = (id: string) => closeDockTabs([id]);
 
-  const actions = {
+  /** Dock actions of one cluster: the tabs they open stay bound to it. */
+  const actionsFor = (cluster: string): DockActions => ({
     openLogs: (pod: KubeObject, container?: string) =>
-      openTab({ id: newId("tab"), type: "logs", title: `Logs: ${pod.metadata.name}`, source: { pod }, container }),
+      openDock({ id: newId("tab"), cluster, type: "logs", title: `Logs: ${pod.metadata.name}`, source: { pod }, container }),
     openWorkloadLogs: (resource: ResourceInfo, obj: KubeObject) =>
-      openTab({ id: newId("tab"), type: "logs", title: `Logs: ${resource.kind} ${obj.metadata.name}`, source: { workload: { resource, obj } } }),
+      openDock({
+        id: newId("tab"),
+        cluster,
+        type: "logs",
+        title: `Logs: ${resource.kind} ${obj.metadata.name}`,
+        source: { workload: { resource, obj } },
+      }),
     openShell: (pod: KubeObject, container?: string) =>
-      openTab({ id: newId("tab"), type: "shell", title: `Shell: ${pod.metadata.name}`, pod, container }),
-    openYaml: (res: ResourceInfo, obj: KubeObject) =>
-      openTab({ id: newId("tab"), type: "yaml", title: `${res.kind}: ${obj.metadata.name}`, resource: res, obj }),
+      openDock({ id: newId("tab"), cluster, type: "shell", title: `Shell: ${pod.metadata.name}`, pod, container }),
+    openYaml: (resource: ResourceInfo, obj: KubeObject) =>
+      openDock({ id: newId("tab"), cluster, type: "yaml", title: `${resource.kind}: ${obj.metadata.name}`, resource, obj }),
     openNodeShell: (node: KubeObject) =>
-      openTab({ id: newId("tab"), type: "shell", title: `Node: ${node.metadata.name}`, node: node.metadata.name }),
-  };
-  const openTerminal = () => conn && openTab({ id: newId("tab"), type: "shell", title: "Terminal" });
-  const openCreate = () => conn && openTab({ id: newId("tab"), type: "create", title: "Create resource", namespace: nsParam });
+      openDock({ id: newId("tab"), cluster, type: "shell", title: `Node: ${node.metadata.name}`, node: node.metadata.name }),
+  });
+  const nsParamOf = (cluster: string) => (namespaces[cluster] && namespaces[cluster] !== ALL ? namespaces[cluster] : null);
+  const openTerminal = (cluster = focusedCluster) =>
+    cluster && openDock({ id: newId("tab"), cluster, type: "shell", title: "Terminal" });
+  const openCreate = (cluster = focusedCluster) =>
+    cluster && openDock({ id: newId("tab"), cluster, type: "create", title: "Create resource", namespace: nsParamOf(cluster) });
 
-  const pickNamespace = useCallback(
-    (ns: string) => {
-      setNamespace(ns);
-      if (activeId) storage.set(`ns:${activeId}`, ns);
-    },
-    [activeId],
+  const pickNamespace = useCallback((cluster: string, ns: string) => {
+    setNamespaces((n) => ({ ...n, [cluster]: ns }));
+    storage.set(`ns:${cluster}`, ns);
+  }, []);
+  const reportNamespaces = useCallback(
+    (cluster: string) => (names: string[]) => setNamespaceNames((n) => (n[cluster] === names ? n : { ...n, [cluster]: names })),
+    [],
   );
 
   const commands = useMemo<Command[]>(() => {
     const list: Command[] = [];
-    if (conn) {
+    const fc = focusedCluster;
+    const conn = fc ? connections[fc] : undefined;
+    if (fc && conn) {
+      const to = (view: string) => () => navigate(tabId(fc, view));
       list.push(
-        { id: "a:overview", label: "Overview", hint: "view", run: () => navigate(OVERVIEW) },
-        { id: "a:pf", label: "Port Forwarding", hint: "view", run: () => navigate(PORT_FORWARDS) },
-        { id: "a:helm", label: "Helm Releases", hint: "view", run: () => navigate(HELM) },
-        { id: "a:flux", label: "Flux dashboard", hint: "gitops", run: () => navigate(FLUX) },
-        { id: "a:argo", label: "Argo CD dashboard", hint: "gitops", run: () => navigate(ARGO) },
-        { id: "a:cost", label: "Cost Monitoring", hint: "view", run: () => navigate(COST) },
-        { id: "a:term", label: "Open cluster terminal", hint: "action", run: openTerminal },
-        { id: "a:create", label: "Create resource from YAML", hint: "action", run: openCreate },
-        ...conn.resources.map((r) => ({
-          id: `r:${r.key}`,
-          label: pluralTitle(r),
-          hint: r.group || "core",
-          run: () => navigate(navId(r)),
-        })),
-        { id: "n:all", label: "All namespaces", hint: "namespace", run: () => pickNamespace(ALL) },
-        ...namespaceNames.map((n) => ({
-          id: `n:${n}`,
-          label: n,
-          hint: "namespace",
-          run: () => pickNamespace(n),
-        })),
-        { id: "a:csettings", label: "Cluster settings", hint: "settings", run: () => setPage({ kind: "cluster", id: activeId! }) },
-        { id: "a:disconnect", label: "Disconnect from cluster", hint: "action", run: disconnect },
+        { id: "a:overview", label: "Overview", hint: "view", run: to(OVERVIEW) },
+        { id: "a:pf", label: "Port Forwarding", hint: "view", run: to(PORT_FORWARDS) },
+        { id: "a:helm", label: "Helm Releases", hint: "view", run: to(HELM) },
+        { id: "a:flux", label: "Flux dashboard", hint: "gitops", run: to(FLUX) },
+        { id: "a:argo", label: "Argo CD dashboard", hint: "gitops", run: to(ARGO) },
+        { id: "a:cost", label: "Cost Monitoring", hint: "view", run: to(COST) },
+        { id: "a:term", label: "Open cluster terminal", hint: "action", run: () => openTerminal(fc) },
+        { id: "a:create", label: "Create resource from YAML", hint: "action", run: () => openCreate(fc) },
+        ...conn.resources.map((r) => ({ id: `r:${r.key}`, label: pluralTitle(r), hint: r.group || "core", run: to(navId(r)) })),
+        { id: "n:all", label: "All namespaces", hint: "namespace", run: () => pickNamespace(fc, ALL) },
+        ...(namespaceNames[fc] ?? []).map((n) => ({ id: `n:${n}`, label: n, hint: "namespace", run: () => pickNamespace(fc, n) })),
+        { id: "a:csettings", label: "Cluster settings", hint: "settings", run: () => setPage({ kind: "cluster", id: fc }) },
+        { id: "a:disconnect", label: `Disconnect from ${labelOf(fc)}`, hint: "action", run: () => disconnect(fc) },
       );
     }
     list.push(
       ...contexts.contexts.map((c) => ({
         id: `c:${c.id}`,
         label: clusterName(c, prefs.clusters[c.id]),
-        hint: "cluster",
-        run: () => connect(c),
+        hint: connections[c.id] ? "cluster · connected" : "cluster",
+        run: () => openCluster(c),
       })),
       { id: "a:catalog", label: "Catalog", hint: "clusters", run: () => navigate(CATALOG) },
       { id: "a:prefs", label: "Preferences", hint: "settings", run: () => setPage({ kind: "prefs" }) },
@@ -337,7 +372,7 @@ export default function App() {
     );
     return list;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [conn, namespaceNames, contexts, navigate, connect, disconnect, prefs.clusters, activeId]);
+  }, [focusedCluster, connections, namespaceNames, contexts, navigate, openCluster, disconnect, prefs.clusters]);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -350,10 +385,10 @@ export default function App() {
       } else if (mod && e.key.toLowerCase() === "k") {
         e.preventDefault();
         setPalette((p) => !p);
-      } else if (mod && e.key.toLowerCase() === "n" && conn) {
+      } else if (mod && e.key.toLowerCase() === "n" && focusedCluster) {
         e.preventDefault();
         openCreate();
-      } else if (mod && e.key === "`" && conn) {
+      } else if (mod && e.key === "`" && focusedCluster) {
         e.preventDefault();
         openTerminal();
       } else if (mod && e.key === "[") {
@@ -362,9 +397,9 @@ export default function App() {
       } else if (mod && e.key === "]") {
         e.preventDefault();
         go(1);
-      } else if (mod && e.key.toLowerCase() === "w" && view && !(e.target as HTMLElement).closest(".dock")) {
+      } else if (mod && e.key.toLowerCase() === "w" && !(e.target as HTMLElement).closest(".dock")) {
         e.preventDefault();
-        closeMainTab(view);
+        closeMainTab(activeTab);
       } else if (e.key === "Escape" && !palette) {
         select(undefined);
       }
@@ -373,207 +408,188 @@ export default function App() {
     return () => window.removeEventListener("keydown", onKey);
   });
 
-  const activeCtx = contexts.contexts.find((c) => c.id === activeId);
-  const settingsCtx = page?.kind === "cluster" ? contexts.contexts.find((c) => c.id === page.id) : undefined;
+  const focusedCtx = contextOf(focusedCluster);
+  const settingsCtx = page?.kind === "cluster" ? contextOf(page.id) : undefined;
   const h = history.current;
-  const shownTabs = (conn ? mainTabs : [CATALOG]).map((id) => ({
-    id,
-    title: id === CATALOG ? "Catalog" : viewTitle(id, conn?.resources ?? []),
-  }));
-  const current = conn ? view : CATALOG;
+  const shownTabs: MainTab[] = mainTabs.flatMap((id): MainTab[] => {
+    const t = parseTab(id);
+    if (!t) return [{ id, title: "Catalog", view: CATALOG }];
+    const conn = connections[t.cluster];
+    const ctx = contextOf(t.cluster);
+    if (!conn || !ctx) return [];
+    const p = prefs.clusters[t.cluster];
+    return [{ id, title: `${viewTitle(t.view, conn.resources)} - ${clusterName(ctx, p)}`, view: t.view, accent: clusterColor(ctx, p) }];
+  });
+  const connectedIds = Object.keys(connections);
+  const activeConn = current ? connections[current.cluster] : undefined;
 
   return (
-    <NamespaceContext.Provider value={{ value: namespace, names: namespaceNames, set: pickNamespace }}>
-      <div className="app">
-        <TitleBar
-          canBack={h.index > 0}
-          canForward={h.index < h.entries.length - 1}
-          onBack={() => go(-1)}
-          onForward={() => go(1)}
-          onSearch={() => setPalette(true)}
-          onCreate={conn ? openCreate : undefined}
-          onTerminal={conn ? openTerminal : undefined}
+    <div className="app">
+      <TitleBar
+        canBack={h.index > 0}
+        canForward={h.index < h.entries.length - 1}
+        onBack={() => go(-1)}
+        onForward={() => go(1)}
+        onSearch={() => setPalette(true)}
+        onCreate={focusedCluster ? () => openCreate() : undefined}
+        onTerminal={focusedCluster ? () => openTerminal() : undefined}
+      />
+      <div className="workspace">
+        <Hotbar
+          contexts={contexts.contexts}
+          active={current?.cluster}
+          connected={connectedIds}
+          connecting={connecting}
+          onPick={openCluster}
+          onClusterMenu={openClusterMenu}
+          onHome={() => {
+            setPage(null);
+            navigate(CATALOG);
+          }}
+          onPreferences={() => setPage({ kind: "prefs" })}
         />
-        <div className="workspace">
-          <Hotbar
-            contexts={contexts.contexts}
-            active={activeId}
-            connecting={connecting}
-            onPick={connect}
-            onClusterMenu={openClusterMenu}
-            onHome={() => {
-              setPage(null);
-              navigate(CATALOG);
-            }}
-            onPreferences={() => setPage({ kind: "prefs" })}
+        <Navigator
+          contexts={contexts.contexts}
+          connections={connections}
+          connecting={connecting}
+          current={current ?? undefined}
+          onConnect={connect}
+          onSettings={(c) => setPage({ kind: "cluster", id: c.id })}
+          onClusterMenu={openClusterMenu}
+          onPick={(cluster, view) => navigate(tabId(cluster, view))}
+          onHome={() => navigate(CATALOG)}
+          onSearch={() => setPalette(true)}
+        />
+        <div className="main">
+          <MainTabs
+            tabs={shownTabs}
+            active={activeTab}
+            onActivate={(id) => navigate(id, selection[id])}
+            onClose={closeMainTab}
+            onCloseMany={closeMainTabs}
           />
-          <Navigator
-            contexts={contexts.contexts}
-            activeId={activeId}
-            connecting={connecting}
-            connection={conn}
-            current={current}
-            onConnect={connect}
-            onSettings={(c) => setPage({ kind: "cluster", id: c.id })}
-            onClusterMenu={openClusterMenu}
-            onPick={(id) => navigate(id)}
-            onHome={() => navigate(CATALOG)}
-            onSearch={() => setPalette(true)}
-          />
-          <div className="main">
-            <MainTabs
-              tabs={shownTabs}
-              active={current}
-              suffix={conn && activeCtx ? clusterName(activeCtx, clusterPrefs) : undefined}
-              accent={activeCtx ? clusterColor(activeCtx, clusterPrefs) : undefined}
-              onActivate={(id) => navigate(id)}
-              onClose={conn ? closeMainTab : undefined}
-              onCloseMany={conn ? closeMainTabs : undefined}
-            />
-            <div className="main-body">
+          <div className="main-body">
             <div className="main-left">
-            <div className="content">
-              {current === CATALOG && (
-                <Catalog
-                  catalog={contexts}
-                  connecting={connecting}
-                  activeId={activeId}
-                  error={error}
-                  onPick={(c) => (c.id === activeId ? navigate(OVERVIEW) : connect(c))}
-                  onSettings={(c) => setPage({ kind: "cluster", id: c.id })}
-                  onChanged={refreshContexts}
-                  notify={notify}
+              <div className="content">
+                {!current && (
+                  <Catalog
+                    catalog={contexts}
+                    connecting={connecting}
+                    connected={connectedIds}
+                    error={error}
+                    onPick={openCluster}
+                    onSettings={(c) => setPage({ kind: "cluster", id: c.id })}
+                    onChanged={refreshContexts}
+                    notify={notify}
+                  />
+                )}
+                {current && activeConn && (
+                  <ClusterView
+                    key={current.cluster}
+                    cluster={current.cluster}
+                    conn={activeConn}
+                    prefs={prefs.clusters[current.cluster] ?? {}}
+                    view={current.view}
+                    selected={selection[activeTab]}
+                    namespace={namespaces[current.cluster] ?? ALL}
+                    onNamespace={(ns) => pickNamespace(current.cluster, ns)}
+                    onSelect={select}
+                    onNavigate={navigateIn(current.cluster)}
+                    onNamespaceNames={reportNamespaces(current.cluster)}
+                    onOpenSettings={(section) => setPage({ kind: "cluster", id: current.cluster, section })}
+                    actions={actionsFor(current.cluster)}
+                    notify={notify}
+                    detailsSlot={detailsSlot}
+                  />
+                )}
+              </div>
+              {connectedIds.length > 0 && (
+                <Dock
+                  tabs={dockTabs}
+                  active={activeDock}
+                  onActivate={setActiveDock}
+                  onClose={closeDockTab}
+                  onCloseMany={closeDockTabs}
+                  onNewTerminal={() => openTerminal()}
+                  clusterLabel={connectedIds.length > 1 ? labelOf : undefined}
                 />
               )}
-              {conn && !current && <div className="empty-view muted">Open something from the Navigator.</div>}
-              {conn && (
-                <>
-                  {view === OVERVIEW && <Overview conn={conn} namespace={nsParam} nodeMetrics={nodeMetrics} onOpen={navigate} />}
-                  {view === PORT_FORWARDS && <PortForwards />}
-                  {view === HELM && <HelmReleases namespace={nsParam} notify={notify} />}
-                  {view === FLUX && <FluxDashboard conn={conn} namespace={nsParam} onNavigate={navigate} notify={notify} />}
-                  {view === ARGO && <ArgoDashboard conn={conn} namespace={nsParam} onNavigate={navigate} notify={notify} />}
-                  {view === COST && activeId && (
-                    <CostDashboard
-                      conn={conn}
-                      clusterId={activeId}
-                      prefs={clusterPrefs ?? {}}
-                      onNavigate={navigate}
-                      onOpenSettings={(section) => setPage({ kind: "cluster", id: activeId, section })}
-                    />
-                  )}
-                  {view && !resource && !(view in SPECIAL_VIEWS) && view !== CATALOG && (
-                    <div className="empty-view muted">This resource is not available in the cluster.</div>
-                  )}
-                  {resource && (
-                    <ResourceTable
-                      key={resource.key}
-                      resource={resource}
-                      watch={watch}
-                      allNamespaces={!nsParam}
-                      metrics={view === "/pods" ? podMetrics : view === "/nodes" ? nodeMetrics : null}
-                      extraColumns={sliceColumns}
-                      selectedUid={selected}
-                      onSelect={(o) => select(o.metadata.uid)}
-                      notify={notify}
-                      actions={actions}
-                    />
-                  )}
-                </>
-              )}
-            </div>
-            {conn && (
-              <Dock tabs={tabs} active={activeTab} onActivate={setActiveTab} onClose={closeTab} onCloseMany={closeTabs} onNewTerminal={openTerminal} />
-            )}
             </div>
             {/* The details drawer spans the full height next to the list and the dock. */}
-            {conn && resource && selectedObj && (
-              <DetailsPanel
-                key={selected}
-                resource={resource}
-                resources={conn.resources}
-                obj={selectedObj}
-                onClose={() => select(undefined)}
-                onNavigate={navigate}
-                notify={notify}
-                {...actions}
-              />
-            )}
-            </div>
+            <div ref={setDetailsSlot} className="details-slot" />
           </div>
         </div>
-        <StatusBar
-          ctx={activeCtx}
-          prefs={clusterPrefs}
-          conn={conn}
-          namespace={nsParam}
-          onForwards={() => navigate(PORT_FORWARDS)}
-        />
-        {page?.kind === "prefs" && (
-          <Preferences catalog={contexts} onClose={() => setPage(null)} onChanged={refreshContexts} notify={notify} />
-        )}
-        {settingsCtx && (
-          <ClusterSettings
-            key={settingsCtx.id}
-            ctx={settingsCtx}
-            connected={settingsCtx.id === activeId}
-            initial={page?.kind === "cluster" ? page.section : undefined}
-            onClose={() => setPage(null)}
-            onReconnect={() => {
-              setPage(null);
-              connect(settingsCtx);
-            }}
-            onRemoved={() => {
-              setPage(null);
-              if (settingsCtx.id === activeId) disconnect();
-              else refreshContexts();
-            }}
-            onChanged={refreshContexts}
-            notify={notify}
-          />
-        )}
-        {clusterMenu && (
-          <ContextMenu
-            x={clusterMenu.x}
-            y={clusterMenu.y}
-            onClose={() => setClusterMenu(null)}
-            items={clusterMenuItems(
-              clusterMenu.ctx,
-              {
-                active: clusterMenu.ctx.id === activeId,
-                connecting: clusterMenu.ctx.id === connecting,
-                prefs: prefs.clusters[clusterMenu.ctx.id],
-              },
-              {
-                connect: (c) => {
-                  setPage(null);
-                  connect(c);
-                },
-                disconnect,
-                settings: (c) => setPage({ kind: "cluster", id: c.id }),
-                terminal: openTerminal,
-                setHotbar: (c, shown) =>
-                  saveClusterPrefs(c.id, { hideFromHotbar: !shown }).catch((e) => notify(String(e), "bad")),
-                copy: (text) => navigator.clipboard.writeText(text).then(() => notify(`Copied ${text}`)),
-                reveal: (path) => api.reveal(path).catch((e) => notify(String(e), "bad")),
-                remove: async (c) => {
-                  if (!confirm(`Remove context "${c.name}" from ${c.file}?\n\nA backup is kept as ${c.file}.bens-backup.`)) return;
-                  try {
-                    await api.deleteContext(c.file, c.name);
-                    notify(`Removed ${c.name}`);
-                    if (c.id === activeId) disconnect();
-                    else refreshContexts();
-                  } catch (e) {
-                    notify(String(e), "bad");
-                  }
-                },
-              },
-            )}
-          />
-        )}
-        {palette && <CommandPalette commands={commands} onClose={() => setPalette(false)} />}
-        {toast && <div className={`toast ${toast.tone}`}>{toast.text}</div>}
       </div>
-    </NamespaceContext.Provider>
+      <StatusBar
+        ctx={focusedCtx}
+        prefs={focusedCluster ? prefs.clusters[focusedCluster] : undefined}
+        conn={focusedCluster ? (connections[focusedCluster] ?? null) : null}
+        namespace={focusedCluster ? nsParamOf(focusedCluster) : null}
+        onForwards={() => focusedCluster && navigate(tabId(focusedCluster, PORT_FORWARDS))}
+      />
+      {page?.kind === "prefs" && (
+        <Preferences catalog={contexts} onClose={() => setPage(null)} onChanged={refreshContexts} notify={notify} />
+      )}
+      {settingsCtx && (
+        <ClusterSettings
+          key={settingsCtx.id}
+          ctx={settingsCtx}
+          connected={!!connections[settingsCtx.id]}
+          initial={page?.kind === "cluster" ? page.section : undefined}
+          onClose={() => setPage(null)}
+          onReconnect={() => {
+            setPage(null);
+            connect(settingsCtx);
+          }}
+          onRemoved={() => {
+            setPage(null);
+            if (connections[settingsCtx.id]) disconnect(settingsCtx.id);
+            else refreshContexts();
+          }}
+          onChanged={refreshContexts}
+          notify={notify}
+        />
+      )}
+      {clusterMenu && (
+        <ContextMenu
+          x={clusterMenu.x}
+          y={clusterMenu.y}
+          onClose={() => setClusterMenu(null)}
+          items={clusterMenuItems(
+            clusterMenu.ctx,
+            {
+              active: !!connections[clusterMenu.ctx.id],
+              connecting: connecting.includes(clusterMenu.ctx.id),
+              prefs: prefs.clusters[clusterMenu.ctx.id],
+            },
+            {
+              connect: (c) => {
+                setPage(null);
+                connect(c);
+              },
+              disconnect: (c) => disconnect(c.id),
+              settings: (c) => setPage({ kind: "cluster", id: c.id }),
+              terminal: (c) => openTerminal(c.id),
+              setHotbar: (c, shown) => saveClusterPrefs(c.id, { hideFromHotbar: !shown }).catch((e) => notify(String(e), "bad")),
+              copy: (text) => navigator.clipboard.writeText(text).then(() => notify(`Copied ${text}`)),
+              reveal: (path) => api.reveal(path).catch((e) => notify(String(e), "bad")),
+              remove: async (c) => {
+                if (!confirm(`Remove context "${c.name}" from ${c.file}?\n\nA backup is kept as ${c.file}.bens-backup.`)) return;
+                try {
+                  await api.deleteContext(c.file, c.name);
+                  notify(`Removed ${c.name}`);
+                  if (connections[c.id]) disconnect(c.id);
+                  else refreshContexts();
+                } catch (e) {
+                  notify(String(e), "bad");
+                }
+              },
+            },
+          )}
+        />
+      )}
+      {palette && <CommandPalette commands={commands} onClose={() => setPalette(false)} />}
+      {toast && <div className={`toast ${toast.tone}`}>{toast.text}</div>}
+    </div>
   );
 }

@@ -1,11 +1,13 @@
 import { useEffect, useState } from "react";
 import { api, ForwardInfo } from "../api";
+import { useClusterId } from "../clusterContext";
 
 /** Bumped whenever a forward starts or stops so the list refreshes. */
 let listeners: (() => void)[] = [];
 export const forwardsChanged = () => listeners.forEach((l) => l());
 
-export function useForwards(): ForwardInfo[] {
+/** Running port forwards; with a cluster, only its own. */
+export function useForwards(cluster?: string): ForwardInfo[] {
   const [list, setList] = useState<ForwardInfo[]>([]);
   useEffect(() => {
     const load = () => api.portForwardList().then(setList).catch(() => {});
@@ -15,13 +17,13 @@ export function useForwards(): ForwardInfo[] {
       listeners = listeners.filter((l) => l !== load);
     };
   }, []);
-  return list;
+  return cluster ? list.filter((f) => f.cluster === cluster) : list;
 }
 
 export const forwardUrl = (f: ForwardInfo) => `http://localhost:${f.localPort}`;
 
 export function PortForwards() {
-  const forwards = useForwards();
+  const forwards = useForwards(useClusterId());
   return (
     <div className="overview">
       <h2>

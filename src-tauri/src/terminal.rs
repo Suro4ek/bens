@@ -65,15 +65,11 @@ fn context_overlay(app: &AppHandle, context: &str, file: &str, namespace: Option
     Ok(path)
 }
 
-/// `KUBECONFIG` value that points CLI tools at the connected cluster.
-pub fn cluster_kubeconfig_env(app: &AppHandle, state: &AppState) -> Result<std::ffi::OsString> {
-    let (context, file, namespace) = {
-        let inner = state.0.lock().unwrap();
-        match (inner.context.clone(), inner.kubeconfig_file.clone()) {
-            (Some(c), Some(f)) => (c, f, inner.prefs.terminal_namespace.clone().filter(|n| !n.trim().is_empty())),
-            _ => return Err(Error::NotConnected),
-        }
-    };
+/// `KUBECONFIG` value that points CLI tools at a connected cluster.
+pub fn cluster_kubeconfig_env(app: &AppHandle, state: &AppState, cluster: &str) -> Result<std::ffi::OsString> {
+    let (context, file, namespace) = state.with_cluster(cluster, |c| {
+        (c.context.clone(), c.kubeconfig_file.clone(), c.prefs.terminal_namespace.clone().filter(|n| !n.trim().is_empty()))
+    })?;
     let overlay = context_overlay(app, &context, &file, namespace.as_deref())?;
     std::env::join_paths([overlay, PathBuf::from(file)]).map_err(other)
 }
@@ -82,12 +78,13 @@ pub fn cluster_kubeconfig_env(app: &AppHandle, state: &AppState) -> Result<std::
 pub async fn local_terminal_start(
     app: AppHandle,
     state: State<'_, AppState>,
+    cluster: String,
     session_id: String,
     cols: u16,
     rows: u16,
     on_event: Channel<ExecEvent>,
 ) -> Result<()> {
-    let kubeconfig = cluster_kubeconfig_env(&app, &state)?;
+    let kubeconfig = cluster_kubeconfig_env(&app, &state, &cluster)?;
 
     let pair = native_pty_system()
         .openpty(PtySize { rows, cols, pixel_width: 0, pixel_height: 0 })
@@ -100,7 +97,7 @@ pub async fn local_terminal_start(
         cmd.arg("-l");
     }
     let home = crate::kubeconfigs::home().to_string_lossy().into_owned();
-    let cwd = state.0.lock().unwrap().prefs.terminal_cwd.clone().filter(|d| !d.trim().is_empty());
+    let cwd = state.prefs(&cluster)?.terminal_cwd.filter(|d| !d.trim().is_empty());
     let cwd = match cwd {
         Some(d) if d == "~" => home.clone(),
         Some(d) => d.strip_prefix("~/").map(|r| format!("{home}/{r}")).unwrap_or(d),
@@ -140,7 +137,7 @@ pub async fn local_terminal_start(
         .lock()
         .unwrap()
         .ptys
-        .insert(session_id, PtySession { master: pair.master, writer, child });
+        .insert(session_id, (cluster, PtySession { master: pair.master, writer, child }));
     Ok(())
 }
 

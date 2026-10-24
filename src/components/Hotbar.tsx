@@ -4,8 +4,10 @@ import { clusterColor, clusterIcon, clusterName, usePrefs } from "../prefs";
 
 interface Props {
   contexts: ContextInfo[];
+  /** The cluster on screen. */
   active?: string;
-  connecting?: string;
+  connected: string[];
+  connecting: string[];
   onPick: (ctx: ContextInfo) => void;
   /** Right click on a cluster: its menu (connect, reconnect, settings…). */
   onClusterMenu: (ctx: ContextInfo, x: number, y: number) => void;
@@ -15,9 +17,9 @@ interface Props {
 
 const SLOTS = 12;
 
-export function Hotbar({ contexts, active, connecting, onPick, onClusterMenu, onHome, onPreferences }: Props) {
+export function Hotbar({ contexts, active, connected, connecting, onPick, onClusterMenu, onHome, onPreferences }: Props) {
   const { clusters } = usePrefs();
-  const shown = contexts.filter((c) => !clusters[c.id]?.hideFromHotbar || c.id === active);
+  const shown = contexts.filter((c) => !clusters[c.id]?.hideFromHotbar || connected.includes(c.id));
   return (
     <nav className="hotbar">
       <button className="hot home" onClick={onHome} title="Catalog">
@@ -28,7 +30,7 @@ export function Hotbar({ contexts, active, connecting, onPick, onClusterMenu, on
         return (
           <button
             key={c.id}
-            className={`hot ${p?.iconImage ? "img" : ""} ${c.id === active ? "active" : ""} ${c.id === connecting ? "pulse" : ""}`}
+            className={`hot ${p?.iconImage ? "img" : ""} ${c.id === active ? "active" : ""} ${connected.includes(c.id) ? "connected" : ""} ${connecting.includes(c.id) ? "pulse" : ""}`}
             style={p?.iconImage ? { backgroundImage: `url("${p.iconImage}")` } : { background: clusterColor(c, p) }}
             title={`${clusterName(c, p)}\n${c.server ?? ""}\n${c.file}\n\nRight-click for more`}
             onClick={() => onPick(c)}

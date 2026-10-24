@@ -89,8 +89,8 @@ fn release_secrets(client: kube::Client, namespace: Option<&str>) -> Api<Secret>
 }
 
 #[tauri::command]
-pub async fn helm_list(state: State<'_, AppState>, namespace: Option<String>) -> Result<Vec<ReleaseSummary>> {
-    let api = release_secrets(state.client()?, namespace.as_deref());
+pub async fn helm_list(state: State<'_, AppState>, cluster: String, namespace: Option<String>) -> Result<Vec<ReleaseSummary>> {
+    let api = release_secrets(state.client(&cluster)?, namespace.as_deref());
     let secrets = api.list(&ListParams::default().labels("owner=helm")).await?;
 
     // Only the newest revision of each release needs decoding.
@@ -116,8 +116,8 @@ fn to_yaml(v: Option<&Value>) -> Result<String> {
 }
 
 #[tauri::command]
-pub async fn helm_get(state: State<'_, AppState>, namespace: String, name: String) -> Result<ReleaseDetails> {
-    let api: Api<Secret> = Api::namespaced(state.client()?, &namespace);
+pub async fn helm_get(state: State<'_, AppState>, cluster: String, namespace: String, name: String) -> Result<ReleaseDetails> {
+    let api: Api<Secret> = Api::namespaced(state.client(&cluster)?, &namespace);
     let secrets = api.list(&ListParams::default().labels(&format!("owner=helm,name={name}"))).await?;
     let mut releases: Vec<Value> = secrets.items.iter().filter_map(decode).collect();
     releases.sort_by_key(|v| std::cmp::Reverse(v.pointer("/version").and_then(Value::as_i64).unwrap_or_default()));
@@ -133,13 +133,17 @@ pub async fn helm_get(state: State<'_, AppState>, namespace: String, name: Strin
     })
 }
 
-async fn run_helm(app: &AppHandle, state: &AppState, args: &[&str]) -> Result<String> {
-    let kubeconfig = cluster_kubeconfig_env(app, state)?;
+/// Runs `helm`; with a cluster, pointed at it through `KUBECONFIG` (repository commands need none).
+async fn run_helm(app: &AppHandle, target: Option<(&AppState, &str)>, args: &[&str]) -> Result<String> {
+    let kubeconfig = target.map(|(state, cluster)| cluster_kubeconfig_env(app, state, cluster)).transpose()?;
     let helm = crate::prefs::load(app).app.helm_path;
     let helm = if helm.trim().is_empty() { "helm".to_string() } else { helm };
-    let out = tokio::process::Command::new(&helm)
-        .args(args)
-        .env("KUBECONFIG", kubeconfig)
+    let mut cmd = tokio::process::Command::new(&helm);
+    cmd.args(args);
+    if let Some(kubeconfig) = kubeconfig {
+        cmd.env("KUBECONFIG", kubeconfig);
+    }
+    let out = cmd
         .output()
         .await
         .map_err(|e| match e.kind() {
@@ -157,16 +161,17 @@ async fn run_helm(app: &AppHandle, state: &AppState, args: &[&str]) -> Result<St
 pub async fn helm_rollback(
     app: AppHandle,
     state: State<'_, AppState>,
+    cluster: String,
     namespace: String,
     name: String,
     revision: i64,
 ) -> Result<String> {
-    run_helm(&app, &state, &["rollback", &name, &revision.to_string(), "--namespace", &namespace]).await
+    run_helm(&app, Some((&state, &cluster)), &["rollback", &name, &revision.to_string(), "--namespace", &namespace]).await
 }
 
 #[tauri::command]
-pub async fn helm_uninstall(app: AppHandle, state: State<'_, AppState>, namespace: String, name: String) -> Result<String> {
-    run_helm(&app, &state, &["uninstall", &name, "--namespace", &namespace]).await
+pub async fn helm_uninstall(app: AppHandle, state: State<'_, AppState>, cluster: String, namespace: String, name: String) -> Result<String> {
+    run_helm(&app, Some((&state, &cluster)), &["uninstall", &name, "--namespace", &namespace]).await
 }
 
 #[cfg(test)]
@@ -218,8 +223,8 @@ pub struct ChartHit {
 }
 
 #[tauri::command]
-pub async fn helm_repo_list(app: AppHandle, state: State<'_, AppState>) -> Result<Vec<HelmRepo>> {
-    match run_helm(&app, &state, &["repo", "list", "-o", "json"]).await {
+pub async fn helm_repo_list(app: AppHandle) -> Result<Vec<HelmRepo>> {
+    match run_helm(&app, None, &["repo", "list", "-o", "json"]).await {
         Ok(out) => serde_json::from_str(&out).map_err(|e| Error::Other(e.to_string())),
         Err(Error::Other(msg)) if msg.contains("no repositories") => Ok(vec![]),
         Err(e) => Err(e),
@@ -227,20 +232,19 @@ pub async fn helm_repo_list(app: AppHandle, state: State<'_, AppState>) -> Resul
 }
 
 #[tauri::command]
-pub async fn helm_repo_add(app: AppHandle, state: State<'_, AppState>, name: String, url: String) -> Result<String> {
-    run_helm(&app, &state, &["repo", "add", &name, &url]).await
+pub async fn helm_repo_add(app: AppHandle, name: String, url: String) -> Result<String> {
+    run_helm(&app, None, &["repo", "add", &name, &url]).await
 }
 
 #[tauri::command]
-pub async fn helm_repo_update(app: AppHandle, state: State<'_, AppState>) -> Result<String> {
-    run_helm(&app, &state, &["repo", "update"]).await
+pub async fn helm_repo_update(app: AppHandle) -> Result<String> {
+    run_helm(&app, None, &["repo", "update"]).await
 }
 
 /// Searches added repos; with `versions`, lists every version of the exact chart.
 #[tauri::command]
 pub async fn helm_search(
     app: AppHandle,
-    state: State<'_, AppState>,
     query: String,
     versions: bool,
 ) -> Result<Vec<ChartHit>> {
@@ -248,7 +252,7 @@ pub async fn helm_search(
     if versions {
         args.push("--versions");
     }
-    let out = run_helm(&app, &state, &args).await?;
+    let out = run_helm(&app, None, &args).await?;
     let mut hits: Vec<ChartHit> = serde_json::from_str(&out).map_err(|e| Error::Other(e.to_string()))?;
     if versions {
         hits.retain(|h| h.name == query);
@@ -259,11 +263,10 @@ pub async fn helm_search(
 #[tauri::command]
 pub async fn helm_show_values(
     app: AppHandle,
-    state: State<'_, AppState>,
     chart: String,
     version: String,
 ) -> Result<String> {
-    run_helm(&app, &state, &["show", "values", &chart, "--version", &version]).await
+    run_helm(&app, None, &["show", "values", &chart, "--version", &version]).await
 }
 
 #[tauri::command]
@@ -271,6 +274,7 @@ pub async fn helm_show_values(
 pub async fn helm_install(
     app: AppHandle,
     state: State<'_, AppState>,
+    cluster: String,
     name: String,
     namespace: String,
     chart: String,
@@ -284,7 +288,7 @@ pub async fn helm_install(
     let file_arg = file.to_string_lossy().to_string();
     let out = run_helm(
         &app,
-        &state,
+        Some((&state, &cluster)),
         &[
             "install", &name, &chart, "--version", &version, "--namespace", &namespace, "--create-namespace", "-f",
             &file_arg,

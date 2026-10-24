@@ -9,16 +9,17 @@ import { ClusterIcon } from "./ClusterIcon";
 
 interface Props {
   contexts: ContextInfo[];
-  activeId?: string;
-  connecting?: string;
-  connection: Connection | null;
-  /** Active view id. */
-  current?: string;
+  /** Connected clusters by catalog id; each shows its own section tree. */
+  connections: Record<string, Connection>;
+  /** Clusters being connected. */
+  connecting: string[];
+  /** The view on screen: its cluster and view id. */
+  current?: { cluster: string; view: string };
   onConnect: (ctx: ContextInfo) => void;
   onSettings: (ctx: ContextInfo) => void;
   /** Right click on a cluster: its menu (connect, reconnect, settings…). */
   onClusterMenu: (ctx: ContextInfo, x: number, y: number) => void;
-  onPick: (viewId: string) => void;
+  onPick: (cluster: string, viewId: string) => void;
   onHome: () => void;
   onSearch: () => void;
 }
@@ -26,10 +27,13 @@ interface Props {
 const WIDTH_KEY = "navigatorWidth";
 const OPEN_KEY = "navigatorOpen";
 
-/** Navigator: a tree of kubeconfigs → clusters → the connected cluster's resources. */
-export function Navigator({ contexts, activeId, connecting, connection, current, onConnect, onSettings, onClusterMenu, onPick, onHome, onSearch }: Props) {
+/** Navigator: a tree of kubeconfigs → clusters → each connected cluster's resources. */
+export function Navigator({ contexts, connections, connecting, current, onConnect, onSettings, onClusterMenu, onPick, onHome, onSearch }: Props) {
   const { clusters } = usePrefs();
-  const tree = useMemo(() => (connection ? buildNavTree(connection.resources) : []), [connection]);
+  const trees = useMemo(
+    () => Object.fromEntries(Object.entries(connections).map(([id, c]) => [id, buildNavTree(c.resources)])),
+    [connections],
+  );
   const [open, setOpen] = useState<Record<string, boolean>>(() => {
     try {
       return JSON.parse(storage.get(OPEN_KEY) ?? "{}");
@@ -47,30 +51,35 @@ export function Navigator({ contexts, activeId, connecting, connection, current,
       return next;
     });
   const isOpen = (key: string, def = false) => open[key] ?? def;
+  // Group keys are per cluster: opening Workloads in one cluster leaves the others as they are.
+  const groupKey = (cluster: string, key: string) => `${cluster}|${key}`;
 
   // Reveal the active view in the tree.
   useEffect(() => {
     if (!current) return;
-    const path = pathTo(tree, current);
-    if (path?.some((k) => !open[k])) {
+    const path = pathTo(trees[current.cluster] ?? [], current.view)?.map((k) => groupKey(current.cluster, k));
+    const keys = path ? [...path, `c:${current.cluster}`] : [];
+    if (keys.some((k) => !open[k])) {
       setOpen((o) => {
         const next = { ...o };
-        path.forEach((k) => (next[k] = true));
+        keys.forEach((k) => (next[k] = true));
         return next;
       });
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [current, tree]);
+  }, [current?.cluster, current?.view, trees]);
 
-  const row = (n: NavNode, depth: number) => {
+  const row = (cluster: string, n: NavNode, depth: number) => {
     const Icon = n.icon ? NAV_ICONS[n.icon] : undefined;
-    const expanded = isOpen(n.key);
+    const key = groupKey(cluster, n.key);
+    const expanded = isOpen(key);
+    const active = !!n.id && current?.cluster === cluster && n.id === current.view;
     return (
       <div key={n.key}>
         <div
-          className={`tree-row ${n.id && n.id === current ? "active" : ""}`}
+          className={`tree-row ${active ? "active" : ""}`}
           style={{ paddingLeft: 8 + depth * 14 }}
-          onClick={() => (n.children ? setOpenKey(n.key, !expanded) : n.id && onPick(n.id))}
+          onClick={() => (n.children ? setOpenKey(key, !expanded) : n.id && onPick(cluster, n.id))}
         >
           <span className={`chev ${n.children ? "" : "none"} ${expanded ? "open" : ""}`}>
             {n.children && <ChevronRight size={14} />}
@@ -78,7 +87,7 @@ export function Navigator({ contexts, activeId, connecting, connection, current,
           {Icon && <Icon size={15} className="tree-icon" />}
           <span className="tree-label">{n.label}</span>
         </div>
-        {n.children && expanded && <div className="tree-children">{n.children.map((c) => row(c, depth + 1))}</div>}
+        {n.children && expanded && <div className="tree-children">{n.children.map((c) => row(cluster, c, depth + 1))}</div>}
       </div>
     );
   };
@@ -108,15 +117,15 @@ export function Navigator({ contexts, activeId, connecting, connection, current,
         {rootOpen &&
           contexts.map((c) => {
             const p = clusters[c.id];
-            const active = c.id === activeId;
-            const expanded = active && isOpen(`c:${c.id}`, true);
+            const connected = !!connections[c.id];
+            const expanded = connected && isOpen(`c:${c.id}`, true);
             return (
               <div key={c.id} className="tree-children">
                 <div
-                  className={`tree-row cluster ${active ? "connected" : ""}`}
+                  className={`tree-row cluster ${connected ? "connected" : ""} ${current?.cluster === c.id ? "focused" : ""}`}
                   style={{ paddingLeft: 22 }}
                   title={`${c.name}\n${c.server ?? ""}\n${c.file}`}
-                  onClick={() => (active ? setOpenKey(`c:${c.id}`, !expanded) : onConnect(c))}
+                  onClick={() => (connected ? setOpenKey(`c:${c.id}`, !expanded) : onConnect(c))}
                   onContextMenu={(e) => {
                     e.preventDefault();
                     onClusterMenu(c, e.clientX, e.clientY);
@@ -127,8 +136,8 @@ export function Navigator({ contexts, activeId, connecting, connection, current,
                   </span>
                   <ClusterIcon ctx={c} prefs={p} className="mini-icon" />
                   <span className="tree-label">{clusterName(c, p)}</span>
-                  {connecting === c.id && <span className="spinner tiny" />}
-                  {active && <span className="dot ok" title="Connected" />}
+                  {connecting.includes(c.id) && <span className="spinner tiny" />}
+                  {connected && <span className="dot ok" title="Connected" />}
                   <button
                     className="icon row-action"
                     title="Cluster settings"
@@ -140,7 +149,7 @@ export function Navigator({ contexts, activeId, connecting, connection, current,
                     <Settings size={13} />
                   </button>
                 </div>
-                {expanded && <div className="tree-children">{tree.map((n) => row(n, 2))}</div>}
+                {expanded && <div className="tree-children">{(trees[c.id] ?? []).map((n) => row(c.id, n, 2))}</div>}
               </div>
             );
           })}
