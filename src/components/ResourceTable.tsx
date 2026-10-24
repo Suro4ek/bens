@@ -3,7 +3,7 @@ import { api, KubeObject, ResourceInfo } from "../api";
 import { Column, columnsFor } from "../columns";
 import type { WatchState } from "../useWatch";
 import { save as saveDialog } from "@tauri-apps/plugin-dialog";
-import { CaseSensitive, EllipsisVertical, FileDown, Minus, Plus, Regex, Search, Trash2, X } from "lucide-react";
+import { CaseSensitive, CopyPlus, EllipsisVertical, FileDown, Minus, Plus, Regex, Search, Trash2, X } from "lucide-react";
 import { NamespaceSelect } from "./NamespaceSelect";
 import type { MetricsMap } from "../useMetrics";
 import type { DockActions } from "./DetailsPanel";
@@ -21,13 +21,15 @@ interface Props {
   onSelect: (o: KubeObject) => void;
   notify: (msg: string, tone?: "ok" | "bad") => void;
   actions: DockActions;
+  /** Copy objects to another cluster or namespace (Secrets, ConfigMaps). */
+  onCopy?: (objects: KubeObject[]) => void;
   /** The round "+" at the bottom right of the list: create an object of this type. */
   onCreate?: () => void;
 }
 
 const uidOf = (o: KubeObject) => o.metadata.uid ?? `${o.metadata.namespace}/${o.metadata.name}`;
 
-export function ResourceTable({ resource, watch, allNamespaces, metrics, extraColumns, selectedUid, onSelect, notify, actions, onCreate }: Props) {
+export function ResourceTable({ resource, watch, allNamespaces, metrics, extraColumns, selectedUid, onSelect, notify, actions, onCreate, onCopy }: Props) {
   const capi = useApi();
   const [menu, setMenu] = useState<{ x: number; y: number; obj: KubeObject } | null>(null);
   const [scaling, setScaling] = useState<KubeObject | null>(null);
@@ -107,6 +109,12 @@ export function ResourceTable({ resource, watch, allNamespaces, metrics, extraCo
       return next;
     });
 
+  /** Right-clicking a checked row copies all checked rows; any other row, just itself. */
+  const copyTargets = (o: KubeObject) => {
+    const objects = checked.has(uidOf(o)) && checkedRows.length > 1 ? checkedRows : [o];
+    return { count: objects.length, run: () => onCopy?.(objects) };
+  };
+
   /** "Export list to CSV": the visible columns of the filtered, sorted rows. */
   const exportCsv = async () => {
     const path = await saveDialog({
@@ -182,6 +190,11 @@ export function ResourceTable({ resource, watch, allNamespaces, metrics, extraCo
         {checkedRows.length > 0 && (
           <>
             <span className="selection">{checkedRows.length} selected</span>
+            {onCopy && (
+              <button className="icon" onClick={() => onCopy(checkedRows)} title="Copy selected to another cluster or namespace">
+                <CopyPlus size={15} />
+              </button>
+            )}
             <button className="icon" onClick={() => setChecked(new Set())} title="Clear selection">
               <X size={15} />
             </button>
@@ -269,7 +282,14 @@ export function ResourceTable({ resource, watch, allNamespaces, metrics, extraCo
         <ContextMenu
           x={menu.x}
           y={menu.y}
-          items={objectMenuItems(menu.obj, { capi, resource, actions, notify, askScale: setScaling })}
+          items={objectMenuItems(menu.obj, {
+            capi,
+            resource,
+            actions,
+            notify,
+            askScale: setScaling,
+            copyTo: onCopy && copyTargets(menu.obj),
+          })}
           onClose={() => setMenu(null)}
         />
       )}

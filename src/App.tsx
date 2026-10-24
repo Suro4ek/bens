@@ -501,6 +501,7 @@ export default function App() {
                     actions={actionsFor(current.cluster)}
                     notify={notify}
                     detailsSlot={detailsSlot}
+                    clusters={connectedIds.map((id) => ({ id, label: labelOf(id), conn: connections[id] }))}
                   />
                 )}
               </div>

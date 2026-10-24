@@ -10,6 +10,9 @@ import { useMetrics } from "../useMetrics";
 import { useWatch } from "../useWatch";
 import { CostDashboard } from "./CostDashboard";
 import { CreateConfigMapDialog, CreateSecretDialog } from "./CreateDialogs";
+import { ClusterChoice, CopyDialog } from "./CopyDialog";
+import { COPYABLE } from "../copy";
+import type { KubeObject } from "../api";
 import { templateFor } from "../templates";
 import { DetailsPanel, DockActions } from "./DetailsPanel";
 import { ArgoDashboard, FluxDashboard } from "./GitOpsDashboards";
@@ -37,6 +40,8 @@ interface Props {
   onOpenSettings: (section?: string) => void;
   actions: DockActions;
   notify: (msg: string, tone?: "ok" | "bad") => void;
+  /** Connected clusters, to copy Secrets and ConfigMaps to. */
+  clusters: ClusterChoice[];
   /** Where the details panel goes: beside the content and the dock, full height. */
   detailsSlot: HTMLElement | null;
 }
@@ -65,6 +70,7 @@ function ClusterContent({
   actions,
   notify,
   detailsSlot,
+  clusters,
 }: Props) {
   const byNav = useMemo(() => new Map(conn.resources.map((r) => [navId(r), r])), [conn]);
   const resource = view in SPECIAL_VIEWS ? undefined : byNav.get(view);
@@ -109,6 +115,9 @@ function ClusterContent({
     notify,
   };
 
+  const [copying, setCopying] = useState<KubeObject[] | null>(null);
+  const onCopy = resource && COPYABLE.has(view) ? setCopying : undefined;
+
   const podMetrics = useMetrics("pods", nsParam, conn.metrics && view === "/pods");
   const nodeMetrics = useMetrics("nodes", null, conn.metrics && (view === "/nodes" || view === OVERVIEW));
 
@@ -136,6 +145,17 @@ function ClusterContent({
           notify={notify}
           actions={actions}
           onCreate={onCreate}
+          onCopy={onCopy}
+        />
+      )}
+      {copying && resource && (
+        <CopyDialog
+          resource={resource}
+          objects={copying}
+          sourceCluster={cluster}
+          clusters={clusters}
+          onClose={() => setCopying(null)}
+          notify={notify}
         />
       )}
       {creating === "/secrets" && dialogProps && <CreateSecretDialog {...dialogProps} />}
@@ -152,6 +172,7 @@ function ClusterContent({
             onClose={() => onSelect(undefined)}
             onNavigate={onNavigate}
             notify={notify}
+            onCopy={onCopy && (() => onCopy([selectedObj]))}
             {...actions}
           />,
           detailsSlot,

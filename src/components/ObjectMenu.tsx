@@ -4,6 +4,7 @@ import {
   ArrowDownToLine,
   ChevronRight,
   Copy,
+  CopyPlus,
   FileText,
   Pause,
   Pencil,
@@ -52,6 +53,8 @@ interface MenuContext {
   resource: ResourceInfo;
   actions: DockActions;
   notify: Notify;
+  /** "Copy to…" another cluster or namespace (Secrets, ConfigMaps); `count` > 1 when it copies the checked rows. */
+  copyTo?: { count: number; run: () => void };
   /** Asks for a replica count (the app's own dialog: WebKit has no window.prompt). */
   askScale: (obj: KubeObject) => void;
 }
@@ -134,7 +137,7 @@ export function HoverMenu({
 }
 
 /** Object menu: the kind's own actions, then Edit and Delete. */
-export function objectMenuItems(obj: KubeObject, { capi, resource, actions, notify, askScale }: MenuContext): MenuItem[] {
+export function objectMenuItems(obj: KubeObject, { capi, resource, actions, notify, askScale, copyTo }: MenuContext): MenuItem[] {
   const id = `${resource.group}/${resource.plural}`;
   const ns = obj.metadata.namespace;
   const name = obj.metadata.name;
@@ -226,6 +229,7 @@ export function objectMenuItems(obj: KubeObject, { capi, resource, actions, noti
   }
 
   items.push(
+    ...(copyTo ? [{ label: copyTo.count > 1 ? `Copy ${copyTo.count} to…` : "Copy to…", icon: CopyPlus, run: copyTo.run }] : []),
     { label: "Copy name", icon: Copy, run: () => navigator.clipboard.writeText(name).then(() => notify(`Copied ${name}`)) },
     { label: "Edit", icon: Pencil, run: () => actions.openYaml(resource, obj) },
     {

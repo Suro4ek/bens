@@ -246,6 +246,8 @@ function makeClusterApi(cluster: string) {
     /** Creates an object; fails if it already exists. */
     create: (key: string, namespace: string | undefined, object: unknown) =>
       call<KubeObject>("create_resource", { key, namespace, object }),
+    /** Creates an object or replaces the existing one; resolves to true when it was created. */
+    put: (key: string, namespace: string | undefined, object: unknown) => call<boolean>("put_resource", { key, namespace, object }),
 
     execStart: (
       sessionId: string,

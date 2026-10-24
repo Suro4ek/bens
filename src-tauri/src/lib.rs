@@ -80,6 +80,7 @@ pub fn run() {
             resources::get_metrics,
             resources::apply_manifest,
             resources::create_resource,
+            resources::put_resource,
             nodes::node_cordon,
             nodes::node_drain,
             nodes::node_shell_start,

@@ -1,5 +1,5 @@
 import { Fragment, useRef, useState } from "react";
-import { ArrowDownToLine, ChevronsUpDown, FileText, Pause, Pencil, Play, RotateCw, SquareTerminal, Trash2, X } from "lucide-react";
+import { ArrowDownToLine, ChevronsUpDown, CopyPlus, FileText, Pause, Pencil, Play, RotateCw, SquareTerminal, Trash2, X } from "lucide-react";
 import { api, KubeObject, ResourceInfo } from "../api";
 import { Brick, Status } from "../columns";
 import { navId } from "../nav";
@@ -38,6 +38,8 @@ interface Props extends DockActions {
   onNavigate: (navId: string, uid?: string, ref?: { namespace?: string; name: string }) => void;
   onClose: () => void;
   notify: (msg: string, tone?: "ok" | "bad") => void;
+  /** "Copy to…" another cluster or namespace (Secrets, ConfigMaps). */
+  onCopy?: () => void;
 }
 
 const WIDTH_KEY = "detailsWidth";
@@ -411,7 +413,7 @@ function ObjectEvents({ resources, obj }: { resources: ResourceInfo[]; obj: Kube
   );
 }
 
-export function DetailsPanel({ resource, resources, obj, onClose, onNavigate, notify, ...actions }: Props) {
+export function DetailsPanel({ resource, resources, obj, onClose, onNavigate, notify, onCopy, ...actions }: Props) {
   const capi = useApi();
   const id = `${resource.group}/${resource.plural}`;
   const [replicas, setReplicas] = useState<number>(obj.spec?.replicas ?? 0);
@@ -535,6 +537,11 @@ export function DetailsPanel({ resource, resources, obj, onClose, onNavigate, no
               }}
             >
               <ArrowDownToLine size={16} />
+            </button>
+          )}
+          {onCopy && (
+            <button className="icon" title="Copy to another cluster or namespace" onClick={onCopy}>
+              <CopyPlus size={16} />
             </button>
           )}
           <button className="icon" title="Edit YAML" onClick={() => actions.openYaml(resource, obj)}>

@@ -23,7 +23,7 @@ const R = (group: string, kind: string, plural: string, namespaced = true): Reso
   plural,
   namespaced,
 });
-const resources = [R("", "Pod", "pods"), R("", "Namespace", "namespaces", false)];
+const resources = [R("", "Pod", "pods"), R("", "Namespace", "namespaces", false), R("", "Secret", "secrets")];
 
 const nextFrame = () => act(() => new Promise<void>((r) => requestAnimationFrame(() => r())));
 
@@ -205,5 +205,54 @@ describe("cluster context menu", () => {
     await waitFor(() => expect(liveWatches("/v1/namespaces", A.id)).toHaveLength(1));
     expect(liveWatches("/v1/namespaces", A.id)[0]).not.toBe(before);
     expect(connectedClusters()).toEqual(["cluster-a", "cluster-b"]);
+  });
+});
+
+describe("copying a secret to another cluster", () => {
+  it("copies it into the chosen cluster and namespace, cleaned of the source's identity", async () => {
+    const calls: { cmd: string; args: any }[] = [];
+    handlers.create_resource = (args) => (calls.push({ cmd: "create", args }), args.object);
+    localStorage.setItem(`tabs:${A.id}`, JSON.stringify(["/secrets"]));
+    localStorage.setItem(`view:${A.id}`, "/secrets");
+    render(<App />);
+    await waitFor(() => expect(connectedClusters()).toEqual(["cluster-a"]));
+    await connectB();
+    openTab("Secrets - cluster-a");
+    await waitFor(() => expect(liveWatches("/v1/secrets", A.id)).toHaveLength(1));
+    act(() =>
+      liveWatches("/v1/secrets", A.id)[0].channel.send({
+        type: "reset",
+        items: [
+          {
+            apiVersion: "v1",
+            kind: "Secret",
+            type: "Opaque",
+            metadata: { name: "db-creds", namespace: "payments", uid: "s1", resourceVersion: "42" },
+            data: { PASSWORD: "cGFzcw==" },
+          },
+        ],
+      }),
+    );
+    await nextFrame();
+
+    fireEvent.contextMenu(screen.getByText("db-creds"));
+    fireEvent.click(screen.getByText("Copy to…"));
+    // The other connected cluster is preselected; the namespace is the source's.
+    expect((screen.getByDisplayValue("cluster-b") as HTMLSelectElement).value).toBe(B.id);
+    fireEvent.click(screen.getByRole("button", { name: "Copy" }));
+
+    await waitFor(() => expect(calls.filter((c) => c.args.key === "/v1/secrets")).toHaveLength(1));
+    const { args } = calls.find((c) => c.args.key === "/v1/secrets")!;
+    expect(args.cluster).toBe(B.id);
+    expect(args.namespace).toBe("payments");
+    expect(args.object).toEqual({
+      apiVersion: "v1",
+      kind: "Secret",
+      type: "Opaque",
+      metadata: { name: "db-creds", namespace: "payments" },
+      data: { PASSWORD: "cGFzcw==" },
+    });
+    // The namespace was ensured in B first.
+    expect(calls.some((c) => c.args.key === "/v1/namespaces" && c.args.cluster === B.id)).toBe(true);
   });
 });

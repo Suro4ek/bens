@@ -226,6 +226,36 @@ pub async fn create_resource(
     serde_json::to_value(strip(created)).map_err(|e| Error::Other(e.to_string()))
 }
 
+/// Creates an object, or replaces it when it exists (`kubectl replace --force` without the delete):
+/// the copy ends up exactly as sent. Returns whether it was created.
+#[tauri::command]
+pub async fn put_resource(
+    state: State<'_, AppState>,
+    cluster: String,
+    key: String,
+    namespace: Option<String>,
+    object: serde_json::Value,
+) -> Result<bool> {
+    let rt = state.resource(&cluster, &key)?;
+    let api = object_api(state.client(&cluster)?, &rt, namespace.as_deref());
+    let mut obj: DynamicObject = serde_json::from_value(object).map_err(|e| Error::Other(e.to_string()))?;
+    obj.types = Some(kube::api::TypeMeta { api_version: rt.api.api_version.clone(), kind: rt.api.kind.clone() });
+    if rt.namespaced {
+        obj.metadata.namespace = namespace.or(obj.metadata.namespace);
+    }
+    let name = obj.metadata.name.clone().unwrap_or_default();
+    match api.create(&kube::api::PostParams::default(), &obj).await {
+        Ok(_) => Ok(true),
+        Err(kube::Error::Api(s)) if s.code == 409 => {
+            let current = api.get(&name).await?;
+            obj.metadata.resource_version = current.metadata.resource_version;
+            api.replace(&name, &kube::api::PostParams::default(), &obj).await?;
+            Ok(false)
+        }
+        Err(e) => Err(e.into()),
+    }
+}
+
 /// `kubectl apply --server-side` for one or more YAML documents.
 #[tauri::command]
 pub async fn apply_manifest(
