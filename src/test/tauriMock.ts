@@ -67,7 +67,7 @@ vi.mock("@tauri-apps/api/core", () => ({
   }),
 }));
 
-vi.mock("@tauri-apps/plugin-opener", () => ({ openUrl: vi.fn(), revealItemInDir: vi.fn() }));
+vi.mock("@tauri-apps/plugin-opener", () => ({ openUrl: vi.fn(async () => {}), revealItemInDir: vi.fn(async () => {}) }));
 
 /** Live (not stopped) watches of a resource key, optionally of one cluster. */
 export const liveWatches = (key: string, cluster?: string) =>

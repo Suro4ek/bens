@@ -162,6 +162,14 @@ export const connectionEpoch = {
   },
 };
 
+/** Errors of fire-and-forget calls (opening links), for the app to show. */
+const errorListeners = new Set<(message: string) => void>();
+export const onApiError = (listener: (message: string) => void) => {
+  errorListeners.add(listener);
+  return () => void errorListeners.delete(listener);
+};
+const reportError = (message: string) => errorListeners.forEach((l) => l(message));
+
 let seq = 0;
 export const newId = (prefix: string) => `${prefix}-${Date.now().toString(36)}-${++seq}`;
 
@@ -201,7 +209,8 @@ export const api = {
   helmSearch: (query: string, versions = false) => invoke<ChartHit[]>("helm_search", { query, versions }),
   helmShowValues: (chart: string, version: string) => invoke<string>("helm_show_values", { chart, version }),
 
-  openUrl: (url: string) => openUrl(url),
+  /** Opens a link in the default browser; a failure is reported (shown as a toast), never swallowed. */
+  openUrl: (url: string) => openUrl(url).catch((e) => reportError(`Couldn't open ${url}: ${e}`)),
   reveal: (path: string) => revealItemInDir(path),
 };
 

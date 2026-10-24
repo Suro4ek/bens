@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { api, Connection, ContextInfo, Contexts, KubeObject, newId, ResourceInfo } from "./api";
+import { api, Connection, ContextInfo, Contexts, KubeObject, newId, onApiError, ResourceInfo } from "./api";
 import { Catalog } from "./components/Catalog";
 import { MainTab, MainTabs, StatusBar, TitleBar } from "./components/Chrome";
 import { ClusterSettings } from "./components/ClusterSettings";
@@ -106,6 +106,9 @@ export default function App() {
     setToast({ text, tone });
     setTimeout(() => setToast((t) => (t?.text === text ? null : t)), 4000);
   }, []);
+
+  // Links that fail to open (no browser, a URL the app may not open) say so.
+  useEffect(() => onApiError((message) => notify(message, "bad")), [notify]);
 
   const refreshContexts = useCallback(() => {
     api
