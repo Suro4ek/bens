@@ -7,6 +7,7 @@ import { CaseSensitive, CopyPlus, EllipsisVertical, FileDown, Minus, Plus, Regex
 import { NamespaceSelect } from "./NamespaceSelect";
 import type { MetricsMap } from "../useMetrics";
 import { selectedText, unlessSelecting } from "../clipboard";
+import { pluralTitle } from "../nav";
 import type { DockActions } from "./DetailsPanel";
 import { ContextMenu, objectMenuItems, ScaleDialog } from "./ObjectMenu";
 import { useApi } from "../clusterContext";
@@ -176,7 +177,7 @@ export function ResourceTable({ resource, watch, allNamespaces, metrics, extraCo
             <Regex size={14} />
           </button>
           <Search size={13} className="muted" />
-          <input placeholder={`Search ${resource.kind}s…`} value={filter} onChange={(e) => setFilter(e.target.value)} />
+          <input placeholder={`Search ${pluralTitle(resource)}…`} value={filter} onChange={(e) => setFilter(e.target.value)} />
           {filter && (
             <button className="icon" onClick={() => setFilter("")} title="Clear">
               <X size={13} />

@@ -166,7 +166,9 @@ export function pathTo(tree: NavNode[], id: string, path: string[] = []): string
 export function pluralTitle(r: ResourceInfo): string {
   const words = r.kind.replace(/([a-z])([A-Z])/g, "$1 $2").replace(/([A-Z]+)([A-Z][a-z])/g, "$1 $2");
   if (/[^aeiou]y$/.test(words)) return words.slice(0, -1) + "ies";
-  if (/(s|x|ch|sh)$/.test(words)) return words + "es";
+  if (/(ss|x|ch|sh)$/.test(words)) return words + "es";
+  // Kinds already in the plural (Endpoints) stay as they are.
+  if (/s$/.test(words)) return words;
   return words + "s";
 }
 

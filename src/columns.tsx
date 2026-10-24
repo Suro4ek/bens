@@ -1,5 +1,6 @@
 import type { ReactNode } from "react";
-import type { KubeObject, ResourceInfo } from "./api";
+import { api, KubeObject, ResourceInfo } from "./api";
+import { ingressPoints, ingressRoutes } from "./ingress";
 import { metricsKey, MetricsMap } from "./useMetrics";
 import {
   argoDestination,
@@ -33,6 +34,34 @@ export interface Column {
   value: (o: KubeObject) => string | number;
   render?: (o: KubeObject) => ReactNode;
   width?: string;
+}
+
+/** Ingress routes as `url ⇢ backend` chips; the URL opens in the browser (like Lens' Rules column). */
+export function IngressLinks({ ingress }: { ingress: KubeObject }) {
+  return (
+    <span className="chips nowrap">
+      {ingressRoutes(ingress).map((r) => (
+        <span key={`${r.url}|${r.backend}`} className="chip route">
+          {r.link ? (
+            <a
+              href="#"
+              title={`Open ${r.url}`}
+              onClick={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                api.openUrl(r.url);
+              }}
+            >
+              {r.url}
+            </a>
+          ) : (
+            r.url
+          )}{" "}
+          ⇢ {r.backend}
+        </span>
+      ))}
+    </span>
+  );
 }
 
 export const Status = ({ text }: { text: string }) => <span className={`status ${statusTone(text)}`}>{text}</span>;
@@ -191,8 +220,14 @@ const specific: Record<string, Column[]> = {
   "/configmaps": [keys("data")],
   "/secrets": [{ title: "Type", value: (o) => o.type ?? "" }, keys("data")],
   "networking.k8s.io/ingresses": [
-    { title: "Class", value: (o) => o.spec?.ingressClassName ?? "" },
-    { title: "Hosts", value: (o) => ((o.spec?.rules ?? []) as any[]).map((r) => r.host ?? "*").join(", ") },
+    { title: "Class", value: (o) => o.spec?.ingressClassName ?? o.metadata.annotations?.["kubernetes.io/ingress.class"] ?? "", width: "110px" },
+    { title: "Load Balancers", value: (o) => ingressPoints(o).join(", ") },
+    {
+      title: "Rules",
+      value: (o) => ingressRoutes(o).map((r) => `${r.url} ⇢ ${r.backend}`).join(", "),
+      render: (o) => <IngressLinks ingress={o} />,
+      width: "minmax(240px, 3fr)",
+    },
   ],
   "/persistentvolumeclaims": [
     { title: "Status", value: (o) => o.status?.phase ?? "", render: (o) => <Status text={o.status?.phase ?? ""} /> },

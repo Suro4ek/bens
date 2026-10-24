@@ -6,7 +6,7 @@ import { navId } from "../nav";
 import { useWatch } from "../useWatch";
 import { age, podReady, podStatus, storage } from "../util";
 import { ForwardControls, PortForwardDialog, useForwards } from "./PortForwards";
-import { ArgoAppDetails, FluxActions, NodeCharts, PodCharts, SecretData } from "./DetailsExtras";
+import { ArgoAppDetails, FluxActions, IngressDetails, NodeCharts, PodCharts, SecretData } from "./DetailsExtras";
 import { isFlux } from "../gitops";
 import { containerItems, HoverMenu, LOG_WORKLOADS } from "./ObjectMenu";
 import { CLAIM_TEMPLATES, CLAIMS, DEVICE_CLASSES, SLICES } from "../dra";
@@ -698,6 +698,7 @@ export function DetailsPanel({ resource, resources, obj, onClose, onNavigate, no
       {id === "argoproj.io/applications" && (
         <ArgoAppDetails resource={resource} resources={resources} obj={obj} notify={notify} onNavigate={onNavigate} />
       )}
+      {id === "networking.k8s.io/ingresses" && <IngressDetails obj={obj} onNavigate={onNavigate} />}
       {id === "/secrets" && <SecretData obj={obj} notify={notify} />}
       {id === "/pods" && <PodCharts pod={obj} />}
       {id === "/nodes" && <NodeCharts node={obj} />}

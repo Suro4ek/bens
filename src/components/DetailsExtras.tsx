@@ -1,5 +1,6 @@
-import { useState } from "react";
-import type { KubeObject, ResourceInfo } from "../api";
+import { Fragment, useState } from "react";
+import { api, KubeObject, ResourceInfo } from "../api";
+import { ingressPoints, ingressRoutes } from "../ingress";
 import { Status } from "../columns";
 import {
   argoHealth,
@@ -303,5 +304,108 @@ export function NodeCharts({ node }: { node: KubeObject }) {
         queries={[{ label: "usage", query: promQueries.nodeMem(name), color: "#7a4dff" }]}
       />
     </section>
+  );
+}
+
+/** Lens' ingress rules: per host, Path / Link / Backends; links open in the browser, backends go to the service. */
+export function IngressDetails({ obj, onNavigate }: { obj: KubeObject; onNavigate: Navigate }) {
+  const routes = ingressRoutes(obj);
+  const hosts = [...new Set(routes.map((r) => r.host))];
+  const points = ingressPoints(obj);
+  const tls = (obj.spec?.tls ?? []) as any[];
+  const toService = (backend: string) => {
+    const name = backend.split(":")[0];
+    if (name && !backend.includes("/")) onNavigate("/services", undefined, { namespace: obj.metadata.namespace, name });
+  };
+  return (
+    <>
+      {routes.length > 0 && (
+        <section>
+          <h4>Rules</h4>
+          {hosts.map((host) => (
+            <div key={host} className="ingress-host">
+              <div className="small muted">Host: {host}</div>
+              <div className="table plain ingress-rules">
+                <div className="tr th">
+                  <div className="td">Path</div>
+                  <div className="td">Link</div>
+                  <div className="td">Backends</div>
+                </div>
+                {routes
+                  .filter((r) => r.host === host)
+                  .map((r) => (
+                    <div key={`${r.path}|${r.backend}`} className="tr">
+                      <div className="td mono">{r.path}</div>
+                      <div className="td">
+                        {r.link ? (
+                          <a
+                            href="#"
+                            title="Open in a browser"
+                            onClick={(e) => {
+                              e.preventDefault();
+                              api.openUrl(r.url);
+                            }}
+                          >
+                            {r.url}
+                          </a>
+                        ) : (
+                          r.url
+                        )}
+                      </div>
+                      <div className="td">
+                        <a
+                          href="#"
+                          title="Show the service"
+                          onClick={(e) => {
+                            e.preventDefault();
+                            toService(r.backend);
+                          }}
+                        >
+                          {r.backend}
+                        </a>
+                      </div>
+                    </div>
+                  ))}
+              </div>
+            </div>
+          ))}
+        </section>
+      )}
+      {(tls.length > 0 || points.length > 0) && (
+        <section className="meta">
+          <h4>Load balancer</h4>
+          <dl>
+            {points.length > 0 && (
+              <>
+                <dt>Address</dt>
+                <dd className="mono">{points.join(", ")}</dd>
+              </>
+            )}
+            {tls.map((t, i) => (
+              <Fragment key={i}>
+                <dt>TLS</dt>
+                <dd>
+                  <span className="mono">{(t.hosts ?? ["*"]).join(", ")}</span>
+                  {t.secretName && (
+                    <>
+                      {" · secret "}
+                      <a
+                        href="#"
+                        onClick={(e) => {
+                          e.preventDefault();
+                          onNavigate("/secrets", undefined, { namespace: obj.metadata.namespace, name: t.secretName });
+                        }}
+                      >
+                        {t.secretName}
+                      </a>
+                    </>
+                  )}
+                </dd>
+              </Fragment>
+            ))}
+          </dl>
+        </section>
+      )}
+    </>
   );
 }

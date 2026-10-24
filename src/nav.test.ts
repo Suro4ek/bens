@@ -9,6 +9,8 @@ describe("nav", () => {
     expect(pluralTitle(R("", "PersistentVolumeClaim", "persistentvolumeclaims"))).toBe("Persistent Volume Claims");
     expect(pluralTitle(R("networking.k8s.io", "IngressClass", "ingressclasses"))).toBe("Ingress Classes");
     expect(pluralTitle(R("", "Policy", "policies"))).toBe("Policies");
+    expect(pluralTitle(R("", "Endpoints", "endpoints"))).toBe("Endpoints");
+    expect(pluralTitle(R("networking.k8s.io", "Ingress", "ingresses"))).toBe("Ingresses");
   });
 
   it("builds the tree with only the resources the cluster serves", () => {

@@ -6,6 +6,7 @@ import {
   ClipboardCopy,
   Copy,
   CopyPlus,
+  ExternalLink,
   KeyRound,
   FileText,
   Pause,
@@ -18,7 +19,8 @@ import {
   Trash2,
   Zap,
 } from "lucide-react";
-import type { ClusterApi, KubeObject, ResourceInfo } from "../api";
+import { api, ClusterApi, KubeObject, ResourceInfo } from "../api";
+import { ingressRoutes } from "../ingress";
 import { useApi } from "../clusterContext";
 import { Brick } from "../columns";
 import { copyText, eventText } from "../clipboard";
@@ -240,6 +242,12 @@ export function objectMenuItems(
     );
   }
 
+  if (id === "networking.k8s.io/ingresses") {
+    const links = ingressRoutes(obj).filter((r) => r.link);
+    if (links.length === 1) items.push({ label: "Open in browser", icon: ExternalLink, run: () => api.openUrl(links[0].url) });
+    else if (links.length > 1)
+      items.push({ label: "Open in browser", icon: ExternalLink, children: links.map((r) => ({ label: r.url, run: () => api.openUrl(r.url) })) });
+  }
   if (id === "/serviceaccounts" && openKubeconfig) items.push({ label: "Kubeconfig", icon: KeyRound, run: () => openKubeconfig(obj) });
 
   // What can be copied from the object; selected text, when there is some, comes first in the menu.
