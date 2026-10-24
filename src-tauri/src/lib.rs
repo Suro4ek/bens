@@ -9,6 +9,7 @@ mod portforward;
 mod prefs;
 mod prometheus;
 mod resources;
+mod serviceaccount;
 mod shell_env;
 mod state;
 mod terminal;
@@ -81,6 +82,7 @@ pub fn run() {
             resources::apply_manifest,
             resources::create_resource,
             resources::put_resource,
+            serviceaccount::service_account_kubeconfig,
             nodes::node_cordon,
             nodes::node_drain,
             nodes::node_shell_start,

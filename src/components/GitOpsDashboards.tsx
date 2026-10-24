@@ -20,6 +20,7 @@ import { age } from "../util";
 import { forwardsChanged } from "./PortForwards";
 import { NamespaceSelect } from "./NamespaceSelect";
 import { useApi } from "../clusterContext";
+import { unlessSelecting } from "../clipboard";
 
 interface Props {
   conn: Connection;
@@ -135,7 +136,7 @@ function ObjRow({
   onNavigate: Props["onNavigate"];
 }) {
   return (
-    <div className="event-row link" onClick={() => onNavigate(navId(res), obj.metadata.uid)}>
+    <div className="event-row link" onClick={unlessSelecting(() => onNavigate(navId(res), obj.metadata.uid))}>
       <Status text={state} />
       <span className="chip">{res.kind}</span>
       <span className="mono small">
@@ -239,7 +240,7 @@ export function ArgoDashboard({ conn, namespace, onNavigate, notify }: Props) {
 function AppRow({ app, onClick }: { app: KubeObject; onClick: () => void }) {
   const op = argoOperation(app);
   return (
-    <div className="event-row link" onClick={onClick}>
+    <div className="event-row link" onClick={unlessSelecting(onClick)}>
       <span className="mono small app-name">{app.metadata.name}</span>
       <Status text={argoSync(app)} />
       <Status text={argoHealth(app)} />

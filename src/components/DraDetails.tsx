@@ -20,6 +20,7 @@ import {
 import { navId } from "../nav";
 import { useWatch } from "../useWatch";
 import { statusTone } from "../util";
+import { unlessSelecting } from "../clipboard";
 
 type Navigate = (navId: string, uid?: string, ref?: { namespace?: string; name: string }) => void;
 
@@ -132,7 +133,7 @@ export function ResourceClaimDetails({ obj, onNavigate }: { obj: KubeObject; onN
             <div
               key={r.uid}
               className={`event-row ${r.resource === "pods" ? "link" : ""}`}
-              onClick={() => r.resource === "pods" && onNavigate("/pods", r.uid)}
+              onClick={unlessSelecting(() => r.resource === "pods" && onNavigate("/pods", r.uid))}
             >
               <span className="muted small">{r.resource}</span>
               <span className="grow mono small">{r.name}</span>
@@ -322,7 +323,7 @@ export function PodResourceClaims({ pod, resources, onNavigate }: { pod: KubeObj
           <div
             key={e.entry}
             className={`event-row ${claim ? "link" : ""}`}
-            onClick={() => claim && onNavigate(CLAIMS, claim.metadata.uid)}
+            onClick={unlessSelecting(() => claim && onNavigate(CLAIMS, claim.metadata.uid))}
             title={e.template ? `From template ${e.template}` : "Direct"}
           >
             <span className="grow">

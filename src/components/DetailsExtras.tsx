@@ -20,6 +20,7 @@ import { formatBytes, formatCpu } from "../util";
 import { PromChart, promQueries, useMetricsHidden, usePrometheusAvailable } from "./Charts";
 import { forwardsChanged } from "./PortForwards";
 import { useApi } from "../clusterContext";
+import { unlessSelecting } from "../clipboard";
 
 type Notify = (msg: string, tone?: "ok" | "bad") => void;
 type Navigate = (navId: string, uid?: string, ref?: { namespace?: string; name: string }) => void;
@@ -203,7 +204,7 @@ export function ArgoAppDetails({
             <div
               key={`${m.group}/${m.kind}/${m.namespace}/${m.name}`}
               className={`event-row ${res ? "link" : ""}`}
-              onClick={() => res && onNavigate(navId(res), undefined, { namespace: m.namespace, name: m.name })}
+              onClick={unlessSelecting(() => res && onNavigate(navId(res), undefined, { namespace: m.namespace, name: m.name }))}
             >
               <span className="chip">{m.kind}</span>
               <span className="grow mono small">

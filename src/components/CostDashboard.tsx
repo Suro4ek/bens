@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { RefreshCw, Settings } from "lucide-react";
 import { api, Connection } from "../api";
 import { useApi } from "../clusterContext";
+import { unlessSelecting } from "../clipboard";
 import {
   COST_WINDOWS,
   CostAllocation,
@@ -471,7 +472,7 @@ function NamespaceTable({
           key={n.namespace}
           className="tr"
           style={{ gridTemplateColumns: grid, cursor: n.isIdle ? "default" : undefined }}
-          onClick={() => !n.isIdle && onNavigate("/namespaces", undefined, { name: n.namespace })}
+          onClick={unlessSelecting(() => !n.isIdle && onNavigate("/namespaces", undefined, { name: n.namespace }))}
           title={n.isIdle ? "Cluster capacity that no workload requested, so it cannot be attributed to a namespace" : undefined}
         >
           <div className={`td ${n.isIdle ? "muted" : ""}`}>{label(n)}</div>

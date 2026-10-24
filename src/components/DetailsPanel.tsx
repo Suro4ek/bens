@@ -1,5 +1,5 @@
 import { Fragment, useRef, useState } from "react";
-import { ArrowDownToLine, ChevronsUpDown, CopyPlus, FileText, Pause, Pencil, Play, RotateCw, SquareTerminal, Trash2, X } from "lucide-react";
+import { ArrowDownToLine, Check, ChevronsUpDown, Copy, CopyPlus, KeyRound, FileText, Pause, Pencil, Play, RotateCw, SquareTerminal, Trash2, X } from "lucide-react";
 import { api, KubeObject, ResourceInfo } from "../api";
 import { Brick, Status } from "../columns";
 import { navId } from "../nav";
@@ -11,6 +11,7 @@ import { isFlux } from "../gitops";
 import { containerItems, HoverMenu, LOG_WORKLOADS } from "./ObjectMenu";
 import { CLAIM_TEMPLATES, CLAIMS, DEVICE_CLASSES, SLICES } from "../dra";
 import { useApi } from "../clusterContext";
+import { copyText, unlessSelecting } from "../clipboard";
 import {
   DeviceClassDetails,
   NodeDevices,
@@ -40,6 +41,8 @@ interface Props extends DockActions {
   notify: (msg: string, tone?: "ok" | "bad") => void;
   /** "Copy to…" another cluster or namespace (Secrets, ConfigMaps). */
   onCopy?: () => void;
+  /** Kubeconfig for a service account. */
+  onKubeconfig?: () => void;
 }
 
 const WIDTH_KEY = "detailsWidth";
@@ -374,7 +377,7 @@ function ControlledPods({
       {pods.items.map((p) => {
         const [ready, total] = podReady(p);
         return (
-          <div key={p.metadata.uid} className="event-row link" onClick={() => onNavigate("/pods", p.metadata.uid)}>
+          <div key={p.metadata.uid} className="event-row link" onClick={unlessSelecting(() => onNavigate("/pods", p.metadata.uid))}>
             <span className="grow mono small">{p.metadata.name}</span>
             <span className="small">{ready}/{total}</span>
             <Status text={podStatus(p)} />
@@ -385,7 +388,26 @@ function ControlledPods({
   );
 }
 
-function ObjectEvents({ resources, obj }: { resources: ResourceInfo[]; obj: KubeObject }) {
+/** Copies text; the icon turns into a check for a moment, like Lens' drawer title. */
+function CopyButton({ text, title, notify }: { text: string; title: string; notify?: Props["notify"] }) {
+  const [done, setDone] = useState(false);
+  return (
+    <button
+      className="icon copy-btn"
+      title={done ? "Copied!" : title}
+      onClick={() =>
+        copyText(text, notify, text.length > 60 ? "to clipboard" : text).then(() => {
+          setDone(true);
+          setTimeout(() => setDone(false), 1200);
+        })
+      }
+    >
+      {done ? <Check size={14} /> : <Copy size={14} />}
+    </button>
+  );
+}
+
+function ObjectEvents({ resources, obj, notify }: { resources: ResourceInfo[]; obj: KubeObject; notify: Props["notify"] }) {
   const eventsKey = resources.find((r) => navId(r) === "/events")?.key;
   const events = useWatch(obj.metadata.uid ? eventsKey : undefined, obj.metadata.namespace ?? null, {
     fieldSelector: `involvedObject.uid=${obj.metadata.uid}`,
@@ -401,9 +423,10 @@ function ObjectEvents({ resources, obj }: { resources: ResourceInfo[]; obj: Kube
         <div key={e.metadata.uid} className={`event ${e.type === "Warning" ? "warning" : ""}`}>
           <div className="row-between small">
             <b>{e.reason}</b>
-            <span className="muted">
+            <span className="muted event-meta">
               {e.count > 1 ? `×${e.count} · ` : ""}
               {age(e.lastTimestamp ?? e.eventTime ?? e.metadata.creationTimestamp)}
+              <CopyButton text={`${e.reason}: ${e.message}`} title="Copy event" notify={notify} />
             </span>
           </div>
           <div className="small">{e.message}</div>
@@ -413,7 +436,7 @@ function ObjectEvents({ resources, obj }: { resources: ResourceInfo[]; obj: Kube
   );
 }
 
-export function DetailsPanel({ resource, resources, obj, onClose, onNavigate, notify, onCopy, ...actions }: Props) {
+export function DetailsPanel({ resource, resources, obj, onClose, onNavigate, notify, onCopy, onKubeconfig, ...actions }: Props) {
   const capi = useApi();
   const id = `${resource.group}/${resource.plural}`;
   const [replicas, setReplicas] = useState<number>(obj.spec?.replicas ?? 0);
@@ -460,6 +483,7 @@ export function DetailsPanel({ resource, resources, obj, onClose, onNavigate, no
         <h3 title={`${resource.kind}: ${obj.metadata.name}`}>
           {resource.kind}: {obj.metadata.name}
         </h3>
+        <CopyButton text={obj.metadata.name} title="Copy name" notify={notify} />
         <div className="details-actions">
           {id === "/pods" &&
             (containerCount(obj) > 1 ? (
@@ -537,6 +561,11 @@ export function DetailsPanel({ resource, resources, obj, onClose, onNavigate, no
               }}
             >
               <ArrowDownToLine size={16} />
+            </button>
+          )}
+          {onKubeconfig && (
+            <button className="icon" title="Kubeconfig for this service account" onClick={onKubeconfig}>
+              <KeyRound size={16} />
             </button>
           )}
           {onCopy && (
@@ -678,7 +707,7 @@ export function DetailsPanel({ resource, resources, obj, onClose, onNavigate, no
       {id === "/secrets" && <SecretData obj={obj} notify={notify} />}
       {id === "/pods" && <PodCharts pod={obj} />}
       {id === "/nodes" && <NodeCharts node={obj} />}
-      <ObjectEvents resources={resources} obj={obj} />
+      <ObjectEvents resources={resources} obj={obj} notify={notify} />
       </div>
     </aside>
   );

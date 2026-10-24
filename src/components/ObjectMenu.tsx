@@ -3,8 +3,10 @@ import type { LucideIcon } from "lucide-react";
 import {
   ArrowDownToLine,
   ChevronRight,
+  ClipboardCopy,
   Copy,
   CopyPlus,
+  KeyRound,
   FileText,
   Pause,
   Pencil,
@@ -19,6 +21,7 @@ import {
 import type { ClusterApi, KubeObject, ResourceInfo } from "../api";
 import { useApi } from "../clusterContext";
 import { Brick } from "../columns";
+import { copyText, eventText } from "../clipboard";
 import { argoRefresh, argoSyncApp, fluxReconcile, fluxSuspend, isFlux } from "../gitops";
 import type { DockActions } from "./DetailsPanel";
 import { ALL } from "./LogsView";
@@ -30,6 +33,8 @@ export interface MenuItem {
   icon?: LucideIcon;
   /** Shown before the label, e.g. a container's status brick. */
   hint?: ReactNode;
+  /** Shown in bold (e.g. "All containers" above the containers). */
+  strong?: boolean;
   danger?: boolean;
   run?: () => unknown;
   children?: MenuItem[];
@@ -55,6 +60,10 @@ interface MenuContext {
   notify: Notify;
   /** "Copy to…" another cluster or namespace (Secrets, ConfigMaps); `count` > 1 when it copies the checked rows. */
   copyTo?: { count: number; run: () => void };
+  /** Text selected with the mouse in the row; offered first as "Copy". */
+  selection?: string;
+  /** Kubeconfig for a service account (Lens' "Kubeconfig" item). */
+  openKubeconfig?: (obj: KubeObject) => void;
   /** Asks for a replica count (the app's own dialog: WebKit has no window.prompt). */
   askScale: (obj: KubeObject) => void;
 }
@@ -88,7 +97,7 @@ function triggerCronJob(capi: ClusterApi, obj: KubeObject) {
 export function containerItems(pod: KubeObject, open: (c: string) => void, all?: string): MenuItem[] {
   const names = [...((pod.spec?.initContainers ?? []) as any[]), ...((pod.spec?.containers ?? []) as any[])].map((c) => c.name as string);
   return [
-    ...(all ? [{ label: all, run: () => open(ALL) }] : []),
+    ...(all ? [{ label: all, strong: true, run: () => open(ALL) }] : []),
     ...names.map((c) => ({ label: c, hint: <Brick pod={pod} name={c} />, run: () => open(c) })),
   ];
 }
@@ -127,7 +136,7 @@ export function HoverMenu({
               }}
             >
               {c.hint}
-              <span className={`grow ${c.hint ? "" : "strong"}`}>{c.label}</span>
+              <span className={`grow ${c.strong ? "strong" : ""}`}>{c.label}</span>
             </div>
           ))}
         </div>
@@ -137,7 +146,10 @@ export function HoverMenu({
 }
 
 /** Object menu: the kind's own actions, then Edit and Delete. */
-export function objectMenuItems(obj: KubeObject, { capi, resource, actions, notify, askScale, copyTo }: MenuContext): MenuItem[] {
+export function objectMenuItems(
+  obj: KubeObject,
+  { capi, resource, actions, notify, askScale, copyTo, selection, openKubeconfig }: MenuContext,
+): MenuItem[] {
   const id = `${resource.group}/${resource.plural}`;
   const ns = obj.metadata.namespace;
   const name = obj.metadata.name;
@@ -228,9 +240,37 @@ export function objectMenuItems(obj: KubeObject, { capi, resource, actions, noti
     );
   }
 
+  if (id === "/serviceaccounts" && openKubeconfig) items.push({ label: "Kubeconfig", icon: KeyRound, run: () => openKubeconfig(obj) });
+
+  // What can be copied from the object; selected text, when there is some, comes first in the menu.
+  const copy = (text: string, what: string) => () => copyText(text, notify, what);
+  const copies: MenuItem[] = [
+    { label: "Name", run: copy(name, name) },
+    ...(ns ? [{ label: "Namespace/name", run: copy(`${ns}/${name}`, `${ns}/${name}`) }] : []),
+    ...(id === "/events"
+      ? [
+          { label: "Message", run: copy(obj.message ?? "", "message") },
+          { label: "Event (one line)", run: copy(eventText(obj), "event") },
+        ]
+      : []),
+    ...(id === "/pods" && obj.status?.podIP ? [{ label: "Pod IP", run: copy(obj.status.podIP, obj.status.podIP) }] : []),
+    ...(id === "/nodes"
+      ? ((obj.status?.addresses ?? []) as any[]).map((a) => ({ label: `${a.type} ${a.address}`, run: copy(a.address, a.address) }))
+      : []),
+    {
+      label: "YAML",
+      run: () =>
+        capi.getYaml(resource.key, ns, name).then(
+          (y) => copyText(y, notify, `${resource.kind} YAML`),
+          (e) => notify(String(e), "bad"),
+        ),
+    },
+  ];
+  if (selection) items.unshift({ label: "Copy", icon: Copy, run: copy(selection, "selection") });
+
   items.push(
     ...(copyTo ? [{ label: copyTo.count > 1 ? `Copy ${copyTo.count} to…` : "Copy to…", icon: CopyPlus, run: copyTo.run }] : []),
-    { label: "Copy name", icon: Copy, run: () => navigator.clipboard.writeText(name).then(() => notify(`Copied ${name}`)) },
+    { label: selection ? "Copy object…" : "Copy", icon: ClipboardCopy, children: copies },
     { label: "Edit", icon: Pencil, run: () => actions.openYaml(resource, obj) },
     {
       label: "Delete",
@@ -303,7 +343,7 @@ export function ContextMenu({ x, y, items, onClose }: { x: number; y: number; it
                 {item.children.map((c) => (
                   <div key={c.label} className="ctx-item" onClick={() => pick(c)}>
                     {c.hint}
-                    <span className={`grow ${c.hint ? "" : "strong"}`}>{c.label}</span>
+                    <span className={`grow ${c.strong ? "strong" : ""}`}>{c.label}</span>
                   </div>
                 ))}
               </div>

@@ -248,6 +248,13 @@ function makeClusterApi(cluster: string) {
       call<KubeObject>("create_resource", { key, namespace, object }),
     /** Creates an object or replaces the existing one; resolves to true when it was created. */
     put: (key: string, namespace: string | undefined, object: unknown) => call<boolean>("put_resource", { key, namespace, object }),
+    /** A kubeconfig for a service account: its token Secret, or a token requested for `hours`. */
+    serviceAccountKubeconfig: (namespace: string, name: string, hours?: number) =>
+      call<{ kubeconfig: string; tokenSource: "secret" | "token-request"; expires?: string }>("service_account_kubeconfig", {
+        namespace,
+        name,
+        hours,
+      }),
 
     execStart: (
       sessionId: string,

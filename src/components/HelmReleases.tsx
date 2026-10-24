@@ -6,6 +6,7 @@ import { CodeEditor } from "./CodeEditor";
 import { InstallChart } from "./InstallChart";
 import { NamespaceSelect } from "./NamespaceSelect";
 import { useApi } from "../clusterContext";
+import { unlessSelecting } from "../clipboard";
 
 const POLL_MS = 15_000;
 const relKey = (r: HelmRelease) => `${r.namespace}/${r.name}`;
@@ -94,7 +95,7 @@ export function HelmReleases({ namespace, notify }: Props) {
                 key={relKey(r)}
                 className={`tr ${relKey(r) === selected ? "selected" : ""}`}
                 style={{ gridTemplateColumns: template }}
-                onClick={() => setSelected(relKey(r))}
+                onClick={unlessSelecting(() => setSelected(relKey(r)))}
               >
                 <div className="td">{r.name}</div>
                 <div className="td">{r.namespace}</div>

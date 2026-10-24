@@ -6,6 +6,7 @@ import { save as saveDialog } from "@tauri-apps/plugin-dialog";
 import { CaseSensitive, CopyPlus, EllipsisVertical, FileDown, Minus, Plus, Regex, Search, Trash2, X } from "lucide-react";
 import { NamespaceSelect } from "./NamespaceSelect";
 import type { MetricsMap } from "../useMetrics";
+import { selectedText, unlessSelecting } from "../clipboard";
 import type { DockActions } from "./DetailsPanel";
 import { ContextMenu, objectMenuItems, ScaleDialog } from "./ObjectMenu";
 import { useApi } from "../clusterContext";
@@ -21,6 +22,8 @@ interface Props {
   onSelect: (o: KubeObject) => void;
   notify: (msg: string, tone?: "ok" | "bad") => void;
   actions: DockActions;
+  /** Kubeconfig for a service account. */
+  openKubeconfig?: (obj: KubeObject) => void;
   /** Copy objects to another cluster or namespace (Secrets, ConfigMaps). */
   onCopy?: (objects: KubeObject[]) => void;
   /** The round "+" at the bottom right of the list: create an object of this type. */
@@ -29,9 +32,9 @@ interface Props {
 
 const uidOf = (o: KubeObject) => o.metadata.uid ?? `${o.metadata.namespace}/${o.metadata.name}`;
 
-export function ResourceTable({ resource, watch, allNamespaces, metrics, extraColumns, selectedUid, onSelect, notify, actions, onCreate, onCopy }: Props) {
+export function ResourceTable({ resource, watch, allNamespaces, metrics, extraColumns, selectedUid, onSelect, notify, actions, onCreate, onCopy, openKubeconfig }: Props) {
   const capi = useApi();
-  const [menu, setMenu] = useState<{ x: number; y: number; obj: KubeObject } | null>(null);
+  const [menu, setMenu] = useState<{ x: number; y: number; obj: KubeObject; selection?: string } | null>(null);
   const [scaling, setScaling] = useState<KubeObject | null>(null);
   const [checked, setChecked] = useState<Set<string>>(new Set());
   const columns = useMemo(
@@ -234,10 +237,11 @@ export function ResourceTable({ resource, watch, allNamespaces, metrics, extraCo
               key={uidOf(o)}
               className={`tr ${o.metadata.uid === selectedUid ? "selected" : ""} ${checked.has(uidOf(o)) ? "checked" : ""}`}
               style={{ gridTemplateColumns: template }}
-              onClick={() => onSelect(o)}
+              // Dragging over text selects it (to copy) instead of opening the details.
+              onClick={unlessSelecting(() => onSelect(o))}
               onContextMenu={(e) => {
                 e.preventDefault();
-                setMenu({ x: e.clientX, y: e.clientY, obj: o });
+                setMenu({ x: e.clientX, y: e.clientY, obj: o, selection: selectedText(e.currentTarget) || undefined });
               }}
             >
               <div className="td check" onClick={(e) => e.stopPropagation()}>
@@ -289,6 +293,8 @@ export function ResourceTable({ resource, watch, allNamespaces, metrics, extraCo
             notify,
             askScale: setScaling,
             copyTo: onCopy && copyTargets(menu.obj),
+            selection: menu.selection,
+            openKubeconfig,
           })}
           onClose={() => setMenu(null)}
         />

@@ -98,7 +98,12 @@
 * { box-sizing: border-box; }
 html, body, #root { margin: 0; height: 100%; overflow: hidden; }
 body { background: var(--bg); user-select: none; -webkit-user-select: none; }
-input, textarea, .selectable, .log-box, .secret-value, .details dd, .cm-editor { user-select: text; -webkit-user-select: text; }
+/* Text in lists, details, dashboards and dialogs can be selected and copied; the app's chrome can't. */
+input, textarea, .selectable, .log-box, .secret-value, .cm-editor,
+.content, .details-body, .details-head h3, .modal, .toast { user-select: text; -webkit-user-select: text; }
+button, .tr.th, .table-toolbar, .view-head, .seg, .ctx-menu, .menu, .tabs-menu, .chips .chip, .brick, .stat-label,
+input[type="checkbox"], .row-menu { user-select: none; -webkit-user-select: none; }
+::selection { background: color-mix(in srgb, var(--accent) 45%, transparent); }
 
 /* ---------- Controls ---------- */
 button {
@@ -433,6 +438,13 @@ button.status-item { background: none; padding: 0; color: var(--link); }
 }
 .details-head h3 { margin: 0; font-size: 15px; font-weight: 600; color: var(--text-strong); flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .details-actions { display: flex; align-items: center; gap: 2px; }
+.details-head .copy-btn { opacity: 0.5; padding: 3px; }
+.details-head:hover .copy-btn { opacity: 1; }
+.event-meta { display: inline-flex; align-items: center; gap: 2px; }
+.event .copy-btn { opacity: 0; padding: 2px; }
+.event:hover .copy-btn { opacity: 1; }
+.field.inline { flex-direction: row; align-items: center; gap: 6px; }
+.kubeconfig-editor { height: 340px; display: flex; overflow: hidden; }
 .details-body { flex: 1; overflow-y: auto; padding: 6px 16px 28px; display: flex; flex-direction: column; gap: 18px; }
 .details header:not(.details-head) { display: flex; justify-content: space-between; align-items: flex-start; gap: 8px; }
 .details h3 { margin: 2px 0 0; font-size: 15px; word-break: break-all; }

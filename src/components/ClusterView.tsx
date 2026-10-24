@@ -11,6 +11,7 @@ import { useWatch } from "../useWatch";
 import { CostDashboard } from "./CostDashboard";
 import { CreateConfigMapDialog, CreateSecretDialog } from "./CreateDialogs";
 import { ClusterChoice, CopyDialog } from "./CopyDialog";
+import { KubeconfigDialog } from "./KubeconfigDialog";
 import { COPYABLE } from "../copy";
 import type { KubeObject } from "../api";
 import { templateFor } from "../templates";
@@ -103,7 +104,7 @@ function ClusterContent({
   const onCreate =
     resource && (view === "/secrets" || view === "/configmaps")
       ? () => setCreating(view)
-      : resource
+      : resource && view !== "/events"
         ? () => actions.openCreate(templateFor(resource, nsParam))
         : undefined;
   const dialogProps = resource && {
@@ -116,6 +117,8 @@ function ClusterContent({
   };
 
   const [copying, setCopying] = useState<KubeObject[] | null>(null);
+  const [kubeconfigFor, setKubeconfigFor] = useState<KubeObject | null>(null);
+  const openKubeconfig = view === "/serviceaccounts" ? setKubeconfigFor : undefined;
   const onCopy = resource && COPYABLE.has(view) ? setCopying : undefined;
 
   const podMetrics = useMetrics("pods", nsParam, conn.metrics && view === "/pods");
@@ -146,8 +149,10 @@ function ClusterContent({
           actions={actions}
           onCreate={onCreate}
           onCopy={onCopy}
+          openKubeconfig={openKubeconfig}
         />
       )}
+      {kubeconfigFor && <KubeconfigDialog account={kubeconfigFor} onClose={() => setKubeconfigFor(null)} notify={notify} />}
       {copying && resource && (
         <CopyDialog
           resource={resource}
@@ -173,6 +178,7 @@ function ClusterContent({
             onNavigate={onNavigate}
             notify={notify}
             onCopy={onCopy && (() => onCopy([selectedObj]))}
+            onKubeconfig={openKubeconfig && (() => openKubeconfig(selectedObj))}
             {...actions}
           />,
           detailsSlot,
