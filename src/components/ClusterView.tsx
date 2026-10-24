@@ -127,7 +127,7 @@ function ClusterContent({
   return (
     <NamespaceContext.Provider value={{ value: namespace, names: namespaceNames, set: onNamespace }}>
       {view === OVERVIEW && <Overview conn={conn} namespace={nsParam} nodeMetrics={nodeMetrics} onOpen={onNavigate} />}
-      {view === PORT_FORWARDS && <PortForwards />}
+      {view === PORT_FORWARDS && <PortForwards notify={notify} />}
       {view === HELM && <HelmReleases namespace={nsParam} notify={notify} />}
       {view === FLUX && <FluxDashboard conn={conn} namespace={nsParam} onNavigate={onNavigate} notify={notify} />}
       {view === ARGO && <ArgoDashboard conn={conn} namespace={nsParam} onNavigate={onNavigate} notify={notify} />}

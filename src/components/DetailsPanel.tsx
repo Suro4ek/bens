@@ -1,11 +1,11 @@
 import { Fragment, useRef, useState } from "react";
 import { ArrowDownToLine, Check, ChevronsUpDown, Copy, CopyPlus, KeyRound, FileText, Pause, Pencil, Play, RotateCw, SquareTerminal, Trash2, X } from "lucide-react";
-import { api, KubeObject, ResourceInfo } from "../api";
+import type { KubeObject, ResourceInfo } from "../api";
 import { Brick, Status } from "../columns";
 import { navId } from "../nav";
 import { useWatch } from "../useWatch";
 import { age, podReady, podStatus, storage } from "../util";
-import { forwardsChanged, forwardUrl, useForwards } from "./PortForwards";
+import { ForwardControls, PortForwardDialog, useForwards } from "./PortForwards";
 import { ArgoAppDetails, FluxActions, NodeCharts, PodCharts, SecretData } from "./DetailsExtras";
 import { isFlux } from "../gitops";
 import { containerItems, HoverMenu, LOG_WORKLOADS } from "./ObjectMenu";
@@ -307,49 +307,43 @@ function Ports({
 }) {
   const capi = useApi();
   const forwards = useForwards(capi.cluster);
+  const [dialog, setDialog] = useState<{ port: number; portName?: string } | null>(null);
   if (!ports.length) return null;
   const { namespace, name } = obj.metadata;
-  const start = async (port: number) => {
-    try {
-      const f = await capi.portForwardStart(kind, namespace!, name, port);
-      forwardsChanged();
-      notify(`Forwarding ${forwardUrl(f)} → ${name}:${port}`);
-    } catch (e) {
-      notify(String(e), "bad");
-    }
-  };
+  const forwardOf = (port: number) =>
+    forwards.find((x) => x.kind === kind && x.namespace === namespace && x.name === name && x.remotePort === port);
   return (
     <section>
       <h4>Ports</h4>
       {ports.map((p) => {
-        const f = forwards.find((x) => x.kind === kind && x.namespace === namespace && x.name === name && x.remotePort === p.port);
+        const f = forwardOf(p.port);
         return (
           <div key={`${p.port}/${p.protocol}`} className="event-row">
             <span className="mono grow">
               {p.port}/{p.protocol ?? "TCP"} {p.name && <span className="muted">({p.name})</span>}
             </span>
             {f ? (
-              <>
-                <a
-                  href="#"
-                  className="mono"
-                  onClick={(e) => {
-                    e.preventDefault();
-                    api.openUrl(forwardUrl(f));
-                  }}
-                >
-                  localhost:{f.localPort}
-                </a>
-                <button onClick={() => api.portForwardStop(f.id).then(forwardsChanged)}>Stop</button>
-              </>
+              <ForwardControls forward={f} onEdit={() => setDialog({ port: p.port, portName: p.name })} notify={notify} />
             ) : (
-              <button disabled={p.protocol === "UDP"} onClick={() => start(p.port)}>
-                Forward
+              <button
+                disabled={p.protocol === "UDP"}
+                title={p.protocol === "UDP" ? "UDP ports can't be forwarded" : undefined}
+                onClick={() => setDialog({ port: p.port, portName: p.name })}
+              >
+                Forward…
               </button>
             )}
           </div>
         );
       })}
+      {dialog && (
+        <PortForwardDialog
+          target={{ cluster: capi.cluster, kind, namespace: namespace!, name, port: dialog.port, portName: dialog.portName }}
+          existing={forwardOf(dialog.port)}
+          onClose={() => setDialog(null)}
+          notify={notify}
+        />
+      )}
     </section>
   );
 }

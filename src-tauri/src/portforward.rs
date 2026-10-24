@@ -21,6 +21,8 @@ pub struct ForwardInfo {
     name: String,
     remote_port: u16,
     local_port: u16,
+    /// "http" or "https": how the forwarded port is opened in a browser.
+    protocol: String,
 }
 
 fn is_ready(pod: &Pod) -> bool {
@@ -93,6 +95,7 @@ pub async fn port_forward_start(
     name: String,
     remote_port: u16,
     local_port: Option<u16>,
+    protocol: Option<String>,
 ) -> Result<ForwardInfo> {
     let id = format!("{cluster}|{kind}/{namespace}/{name}:{remote_port}");
     if let Some(f) = state.0.lock().unwrap().forwards.get(&id) {
@@ -114,6 +117,7 @@ pub async fn port_forward_start(
         name: name.clone(),
         remote_port,
         local_port: local,
+        protocol: protocol.filter(|p| p == "https").unwrap_or_else(|| "http".into()),
     };
 
     let task = tokio::spawn(async move {

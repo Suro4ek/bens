@@ -124,7 +124,7 @@ export const argoRefresh = (capi: ClusterApi, r: ResourceInfo, o: KubeObject, ha
 
 /** Port-forwards argocd-server (in the Application's namespace by default) and opens it. */
 export async function openArgoUi(capi: ClusterApi, namespace: string) {
-  const f = await capi.portForwardStart("service", namespace, "argocd-server", 443);
+  const f = await capi.portForwardStart("service", namespace, "argocd-server", 443, undefined, "https");
   await api.openUrl(`https://localhost:${f.localPort}`);
   return f;
 }

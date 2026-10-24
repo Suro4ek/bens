@@ -83,6 +83,7 @@ export interface ForwardInfo {
   name: string;
   remotePort: number;
   localPort: number;
+  protocol: "http" | "https";
 }
 
 export interface HelmRelease {
@@ -267,8 +268,14 @@ function makeClusterApi(cluster: string) {
       session("node_shell_start", sessionId, opts, onEvent),
 
     getMetrics: (scope: "pods" | "nodes", namespace?: string | null) => call<KubeObject[]>("get_metrics", { scope, namespace }),
-    portForwardStart: (kind: "pod" | "service", namespace: string, name: string, remotePort: number, localPort?: number) =>
-      call<ForwardInfo>("port_forward_start", { kind, namespace, name, remotePort, localPort }),
+    portForwardStart: (
+      kind: "pod" | "service",
+      namespace: string,
+      name: string,
+      remotePort: number,
+      localPort?: number,
+      protocol: "http" | "https" = "http",
+    ) => call<ForwardInfo>("port_forward_start", { kind, namespace, name, remotePort, localPort, protocol }),
 
     nodeCordon: (name: string, unschedulable: boolean) => call<void>("node_cordon", { name, unschedulable }),
     nodeDrain: (name: string) => call<DrainResult>("node_drain", { name }),
