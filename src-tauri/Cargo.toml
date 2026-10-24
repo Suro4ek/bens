@@ -1,6 +1,6 @@
 [package]
 name = "bens"
-version = "0.5.2"
+version = "0.5.3"
 description = "Bens — a lightweight desktop Kubernetes IDE built with Tauri and Rust"
 license = "Apache-2.0"
 edition = "2021"
