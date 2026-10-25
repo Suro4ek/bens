@@ -4,7 +4,7 @@ import type { Connection } from "../api";
 import { ClusterContext } from "../clusterContext";
 import type { Column } from "../columns";
 import { allocatedInSlice, allocationMap, CLAIMS, SLICES } from "../dra";
-import { ARGO, COST, FLUX, HELM, navId, OVERVIEW, PORT_FORWARDS, SPECIAL_VIEWS } from "../nav";
+import { ARGO, COST, FLUX, HELM, navId, OVERVIEW, PORT_FORWARDS, SPECIAL_VIEWS, WORKLOADS_OVERVIEW } from "../nav";
 import type { ClusterPrefs } from "../prefs";
 import { useMetrics } from "../useMetrics";
 import { useWatch } from "../useWatch";
@@ -22,6 +22,7 @@ import { ALL_NAMESPACES as ALL, NamespaceContext } from "./NamespaceSelect";
 import { Overview } from "./Overview";
 import { PortForwards } from "./PortForwards";
 import { ResourceTable } from "./ResourceTable";
+import { WorkloadsOverview } from "./WorkloadsOverview";
 
 export type Navigate = (view: string, uid?: string, ref?: { namespace?: string; name: string }) => void;
 
@@ -127,6 +128,7 @@ function ClusterContent({
   return (
     <NamespaceContext.Provider value={{ value: namespace, names: namespaceNames, set: onNamespace }}>
       {view === OVERVIEW && <Overview conn={conn} namespace={nsParam} nodeMetrics={nodeMetrics} onOpen={onNavigate} />}
+      {view === WORKLOADS_OVERVIEW && <WorkloadsOverview conn={conn} namespace={nsParam} onNavigate={onNavigate} />}
       {view === PORT_FORWARDS && <PortForwards notify={notify} />}
       {view === HELM && <HelmReleases namespace={nsParam} notify={notify} />}
       {view === FLUX && <FluxDashboard conn={conn} namespace={nsParam} onNavigate={onNavigate} notify={notify} />}

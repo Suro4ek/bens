@@ -12,6 +12,7 @@ import {
   GitBranch,
   House,
   Layers,
+  ChartPie,
   LayoutDashboard,
   Plus,
   Puzzle,
@@ -23,7 +24,7 @@ import {
   SquareTerminal,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
-import { ARGO, COST, FLUX, HELM, OVERVIEW, PORT_FORWARDS } from "./nav";
+import { ARGO, COST, FLUX, HELM, OVERVIEW, PORT_FORWARDS, WORKLOADS_OVERVIEW } from "./nav";
 
 /** Icons of Navigator sections (Lucide). */
 export const NAV_ICONS: Record<string, LucideIcon> = {
@@ -47,6 +48,7 @@ export const NAV_ICONS: Record<string, LucideIcon> = {
 /** Icon for a main tab, from the view id. */
 export function viewIcon(id: string): LucideIcon {
   if (id === OVERVIEW) return LayoutDashboard;
+  if (id === WORKLOADS_OVERVIEW) return ChartPie;
   if (id === PORT_FORWARDS) return Cable;
   if (id === HELM) return Ship;
   if (id === FLUX) return CloudCog;

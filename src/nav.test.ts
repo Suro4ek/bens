@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { ResourceInfo } from "./api";
-import { buildNavTree, COST, OVERVIEW, pathTo, pluralTitle, viewTitle } from "./nav";
+import { buildNavTree, COST, OVERVIEW, pathTo, pluralTitle, viewTitle, WORKLOADS_OVERVIEW } from "./nav";
 
 const R = (group: string, kind: string, plural: string): ResourceInfo => ({ key: `${group}/v1/${plural}`, group, version: "v1", kind, plural, namespaced: true });
 
@@ -19,7 +19,8 @@ describe("nav", () => {
     expect(labels.slice(0, 2)).toEqual(["Overview", "Cost Monitoring"]);
     expect(labels).toContain("Workloads");
     expect(labels).not.toContain("Device Resources");
-    expect(tree.find((n) => n.label === "Workloads")!.children!.map((c) => c.label)).toEqual(["Pods", "Deployments"]);
+    expect(tree.find((n) => n.label === "Workloads")!.children!.map((c) => c.label)).toEqual(["Overview", "Pods", "Deployments"]);
+    expect(pathTo(tree, WORKLOADS_OVERVIEW)).toEqual(["g:Workloads"]);
     expect(labels).toContain("Custom Resources");
     expect(pathTo(tree, "example.com/widgets")).toEqual(["g:Custom Resources", "crd:example.com"]);
   });
@@ -35,5 +36,6 @@ describe("nav", () => {
   it("titles special views", () => {
     expect(viewTitle(OVERVIEW, [])).toBe("Overview");
     expect(viewTitle(COST, [])).toBe("Cost Monitoring");
+    expect(viewTitle(WORKLOADS_OVERVIEW, [])).toBe("Workloads Overview");
   });
 });

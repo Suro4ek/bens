@@ -8,8 +8,10 @@ export const HELM = "helm";
 export const FLUX = "flux";
 export const ARGO = "argo";
 export const COST = "cost";
+export const WORKLOADS_OVERVIEW = "workloads";
 export const SPECIAL_VIEWS: Record<string, string> = {
   [OVERVIEW]: "Overview",
+  [WORKLOADS_OVERVIEW]: "Overview",
   [PORT_FORWARDS]: "Port Forwarding",
   [HELM]: "Releases",
   [FLUX]: "Flux",
@@ -34,6 +36,7 @@ const GROUPS: { title: string; icon: string; items: string[] }[] = [
     title: "Workloads",
     icon: "workloads",
     items: [
+      WORKLOADS_OVERVIEW,
       "/pods",
       "apps/deployments",
       "apps/daemonsets",
@@ -102,6 +105,12 @@ const ACCESS = [
 const BUILTIN_GROUP = /^(|apps|batch|autoscaling|policy|networking\.k8s\.io|storage\.k8s\.io|rbac\.authorization\.k8s\.io|scheduling\.k8s\.io|admissionregistration\.k8s\.io|apiextensions\.k8s\.io|apiregistration\.k8s\.io|coordination\.k8s\.io|discovery\.k8s\.io|events\.k8s\.io|flowcontrol\.apiserver\.k8s\.io|node\.k8s\.io|certificates\.k8s\.io|resource\.k8s\.io|internal\.apiserver\.k8s\.io|storagemigration\.k8s\.io)$/;
 
 export const navId = (r: ResourceInfo) => `${r.group}/${r.plural}`;
+
+/** The resource of an object's `apiVersion` and `kind` (owner references, events' objects). */
+export const findResource = (resources: ResourceInfo[], apiVersion: string | undefined, kind: string | undefined) => {
+  const group = apiVersion?.includes("/") ? apiVersion.split("/")[0] : "";
+  return resources.find((r) => r.group === group && r.kind === kind);
+};
 
 /** Navigator tree for a connected cluster, in menu order. */
 export function buildNavTree(resources: ResourceInfo[]): NavNode[] {
@@ -174,7 +183,10 @@ export function pluralTitle(r: ResourceInfo): string {
 
 /** Tab / title label of a view. */
 export function viewTitle(id: string, resources: ResourceInfo[]): string {
-  if (id in SPECIAL_VIEWS) return id === HELM ? "Helm Releases" : id === FLUX || id === ARGO ? `${SPECIAL_VIEWS[id]} dashboard` : SPECIAL_VIEWS[id];
+  if (id === HELM) return "Helm Releases";
+  if (id === WORKLOADS_OVERVIEW) return "Workloads Overview";
+  if (id === FLUX || id === ARGO) return `${SPECIAL_VIEWS[id]} dashboard`;
+  if (id in SPECIAL_VIEWS) return SPECIAL_VIEWS[id];
   const r = resources.find((x) => navId(x) === id);
   return r ? pluralTitle(r) : id;
 }

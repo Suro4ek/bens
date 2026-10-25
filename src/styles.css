@@ -557,6 +557,16 @@ button.status-item { background: none; padding: 0; color: var(--link); }
 .ov-warnings-head { display: flex; align-items: center; justify-content: center; gap: 8px; padding: 14px; font-size: 15px; color: var(--text-strong); border-bottom: 1px solid var(--border); }
 .ov-warnings .tr { cursor: default; }
 .ov-warnings .th { background: var(--bg-2); }
+.wo-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 12px; }
+.wo-card { background: var(--bg-2); border: 1px solid var(--border); border-radius: 6px; padding: 14px; display: flex; flex-direction: column; gap: 12px; }
+.wo-title { font-weight: 600; color: var(--text-strong); align-self: flex-start; }
+.wo-body { display: flex; align-items: center; gap: 16px; }
+.wo-body .ring-legend { padding-left: 0; }
+.donut { flex: none; }
+.donut-total { fill: var(--text-strong); font-size: 18px; font-weight: 500; }
+.wo-events-head { display: flex; align-items: center; gap: 10px; padding: 10px 14px; border-bottom: 1px solid var(--border); }
+.wo-events-head h3 { margin: 0; font-size: 15px; font-weight: 500; color: var(--text-strong); }
+.wo-empty { padding: 14px; }
 
 .stats { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 12px; }
 .stat {

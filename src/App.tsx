@@ -13,7 +13,7 @@ import { Hotbar } from "./components/Hotbar";
 import { ALL_NAMESPACES as ALL } from "./components/NamespaceSelect";
 import { Navigator } from "./components/Navigator";
 import { ContextMenu } from "./components/ObjectMenu";
-import { ARGO, COST, FLUX, HELM, navId, OVERVIEW, PORT_FORWARDS, pluralTitle, viewTitle } from "./nav";
+import { ARGO, COST, FLUX, HELM, navId, OVERVIEW, PORT_FORWARDS, pluralTitle, viewTitle, WORKLOADS_OVERVIEW } from "./nav";
 import { clusterMenuItems } from "./clusterMenu";
 import { storage } from "./util";
 import { clusterColor, clusterName, getAppPrefs, saveClusterPrefs, usePrefs } from "./prefs";
@@ -344,6 +344,7 @@ export default function App() {
       const to = (view: string) => () => navigate(tabId(fc, view));
       list.push(
         { id: "a:overview", label: "Overview", hint: "view", run: to(OVERVIEW) },
+        { id: "a:workloads", label: "Workloads Overview", hint: "view", run: to(WORKLOADS_OVERVIEW) },
         { id: "a:pf", label: "Port Forwarding", hint: "view", run: to(PORT_FORWARDS) },
         { id: "a:helm", label: "Helm Releases", hint: "view", run: to(HELM) },
         { id: "a:flux", label: "Flux dashboard", hint: "gitops", run: to(FLUX) },

@@ -2,7 +2,7 @@ import { Fragment, useRef, useState } from "react";
 import { ArrowDownToLine, Check, ChevronsUpDown, Copy, CopyPlus, KeyRound, FileText, Pause, Pencil, Play, RotateCw, SquareTerminal, Trash2, X } from "lucide-react";
 import type { KubeObject, ResourceInfo } from "../api";
 import { Brick, Status } from "../columns";
-import { navId } from "../nav";
+import { findResource, navId } from "../nav";
 import { useWatch } from "../useWatch";
 import { age, podReady, podStatus, storage } from "../util";
 import { ForwardControls, PortForwardDialog, useForwards } from "./PortForwards";
@@ -288,11 +288,6 @@ function Containers({ pod, actions }: { pod: KubeObject; actions: DockActions })
     </>
   );
 }
-
-const findResource = (resources: ResourceInfo[], apiVersion: string, kind: string) => {
-  const group = apiVersion.includes("/") ? apiVersion.split("/")[0] : "";
-  return resources.find((r) => r.group === group && r.kind === kind);
-};
 
 function Ports({
   kind,
