@@ -25,6 +25,7 @@ import { useApi } from "../clusterContext";
 import { Brick } from "../columns";
 import { copyText, eventText } from "../clipboard";
 import { argoRefresh, argoSyncApp, fluxReconcile, fluxSuspend, isFlux } from "../gitops";
+import { ask, askDelete } from "./Confirm";
 import type { DockActions } from "./DetailsPanel";
 import { ALL } from "./LogsView";
 
@@ -57,6 +58,8 @@ const RESTARTABLE = new Set(["apps/deployments", "apps/statefulsets", "apps/daem
 interface MenuContext {
   /** API of the cluster the object is in. */
   capi: ClusterApi;
+  /** That cluster's name, for confirmations. */
+  clusterName: string;
   resource: ResourceInfo;
   actions: DockActions;
   notify: Notify;
@@ -147,10 +150,32 @@ export function HoverMenu({
   );
 }
 
+export const askNodeShell = (node: string, cluster: string) =>
+  ask({
+    title: `Open a root shell on node ${node}?`,
+    message: `A privileged pod will be created in kube-system on cluster ${cluster}, and removed when the tab is closed.`,
+    ok: "Open shell",
+  });
+
+export const askDrain = (node: string, cluster: string) =>
+  ask({
+    title: `Drain node ${node}?`,
+    message: `On cluster ${cluster}, the node will be cordoned and its pods evicted (DaemonSet pods are skipped).`,
+    ok: "Drain",
+    danger: true,
+  });
+
+export const askRestart = (resource: ResourceInfo, obj: KubeObject, cluster: string) =>
+  ask({
+    title: `Restart ${resource.kind} ${obj.metadata.name}?`,
+    message: `Its pods in namespace ${obj.metadata.namespace} on cluster ${cluster} are replaced one by one.`,
+    ok: "Restart",
+  });
+
 /** Object menu: the kind's own actions, then Edit and Delete. */
 export function objectMenuItems(
   obj: KubeObject,
-  { capi, resource, actions, notify, askScale, copyTo, selection, openKubeconfig }: MenuContext,
+  { capi, clusterName, resource, actions, notify, askScale, copyTo, selection, openKubeconfig }: MenuContext,
 ): MenuItem[] {
   const id = `${resource.group}/${resource.plural}`;
   const ns = obj.metadata.namespace;
@@ -178,9 +203,7 @@ export function objectMenuItems(
       {
         label: "Shell",
         icon: SquareTerminal,
-        run: () =>
-          confirm(`Open a root shell on node ${name}?\n\nA privileged pod will be created in kube-system and removed when the tab is closed.`) &&
-          actions.openNodeShell(obj),
+        run: async () => (await askNodeShell(name, clusterName)) && actions.openNodeShell(obj),
       },
       obj.spec?.unschedulable
         ? { label: "Uncordon", icon: Play, run: run(`Uncordoned ${name}`, () => capi.nodeCordon(name, false)) }
@@ -188,8 +211,8 @@ export function objectMenuItems(
       {
         label: "Drain",
         icon: ArrowDownToLine,
-        run: () =>
-          confirm(`Drain node ${name}? It will be cordoned and its pods evicted (DaemonSet pods are skipped).`) &&
+        run: async () =>
+          (await askDrain(name, clusterName)) &&
           capi.nodeDrain(name).then(
             (r) =>
               notify(
@@ -208,7 +231,8 @@ export function objectMenuItems(
     items.push({
       label: "Restart",
       icon: RotateCw,
-      run: () => confirm(`Restart ${resource.kind} ${name}?`) && run(`Restart triggered for ${name}`, () => capi.restart(resource.key, ns, name))(),
+      run: async () =>
+        (await askRestart(resource, obj, clusterName)) && run(`Restart triggered for ${name}`, () => capi.restart(resource.key, ns, name))(),
     });
   }
   if (id === "batch/cronjobs") {
@@ -284,7 +308,7 @@ export function objectMenuItems(
       label: "Delete",
       icon: Trash2,
       danger: true,
-      run: () => confirm(`Delete ${resource.kind} ${name}?`) && run(`Deleted ${name}`, () => capi.delete(resource.key, ns, name))(),
+      run: async () => (await askDelete(resource, [obj], clusterName)) && run(`Deleted ${name}`, () => capi.delete(resource.key, ns, name))(),
     },
   );
   return items;

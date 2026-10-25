@@ -5,7 +5,8 @@ import { age } from "../util";
 import { CodeEditor } from "./CodeEditor";
 import { InstallChart } from "./InstallChart";
 import { NamespaceSelect } from "./NamespaceSelect";
-import { useApi } from "../clusterContext";
+import { useApi, useClusterName } from "../clusterContext";
+import { ask } from "./Confirm";
 import { unlessSelecting } from "../clipboard";
 
 const POLL_MS = 15_000;
@@ -140,6 +141,7 @@ function ReleaseDetails({
   notify: Props["notify"];
 }) {
   const capi = useApi();
+  const clusterName = useClusterName();
   const [details, setDetails] = useState<HelmDetails>();
   const [tab, setTab] = useState<Tab>("values");
   const [busy, setBusy] = useState(false);
@@ -200,9 +202,14 @@ function ReleaseDetails({
         <button
           className="danger"
           disabled={busy}
-          onClick={() =>
-            confirm(`Uninstall release ${release.name} from ${release.namespace}? This deletes its resources.`) &&
-            run("Uninstalled", () => capi.helmUninstall(release.namespace, release.name)).then(onClose)
+          onClick={async () =>
+            (await ask({
+              title: `Uninstall release ${release.name}?`,
+              message: `All its resources in namespace ${release.namespace} on cluster ${clusterName} are deleted.`,
+              ok: "Uninstall",
+              danger: true,
+              typeToConfirm: release.name,
+            })) && run("Uninstalled", () => capi.helmUninstall(release.namespace, release.name)).then(onClose)
           }
         >
           Uninstall
@@ -234,8 +241,12 @@ function ReleaseDetails({
               {h.revision !== release.revision && (
                 <button
                   disabled={busy}
-                  onClick={() =>
-                    confirm(`Roll back ${release.name} to revision ${h.revision}?`) &&
+                  onClick={async () =>
+                    (await ask({
+                      title: `Roll back ${release.name} to revision ${h.revision}?`,
+                      message: `In namespace ${release.namespace} on cluster ${clusterName}.`,
+                      ok: "Roll back",
+                    })) &&
                     run(`Rolled back to #${h.revision}`, () => capi.helmRollback(release.namespace, release.name, h.revision))
                   }
                 >

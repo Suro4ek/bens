@@ -646,6 +646,11 @@ button.status-item { background: none; padding: 0; color: var(--link); }
   display: flex; flex-direction: column; gap: 12px; box-shadow: 0 12px 40px var(--shadow);
 }
 .modal h3 { margin: 0; color: var(--text-strong); font-weight: 500; font-size: 17px; }
+.confirm-backdrop { z-index: 30; }
+.modal.confirm-dialog { width: min(460px, calc(100vw - 32px)); }
+.confirm-message { display: flex; flex-direction: column; gap: 8px; overflow-wrap: anywhere; }
+.confirm-message b { color: var(--text-strong); font-weight: 600; }
+.confirm-list { margin: 0; padding: 6px 10px 6px 26px; max-height: 220px; overflow-y: auto; font-size: 12px; background: var(--input); border: 1px solid var(--border); border-radius: 4px; }
 .modal p { margin: 0; }
 .modal-editor { min-height: 280px; border: 1px solid var(--border); border-radius: 4px; }
 .modal.install { width: min(900px, calc(100vw - 32px)); }

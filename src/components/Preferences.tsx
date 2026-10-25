@@ -4,6 +4,7 @@ import { open } from "@tauri-apps/plugin-dialog";
 import { api, Contexts } from "../api";
 import { AppPrefs, saveAppPrefs, useAppPrefs } from "../prefs";
 import { Block, NumberSetting, SettingsLayout, TextSetting, Toggle } from "./SettingsLayout";
+import { ask } from "./Confirm";
 
 interface Props {
   catalog: Contexts;
@@ -35,7 +36,8 @@ export function Preferences({ catalog, onClose, onChanged, notify }: Props) {
     }
   };
   const removeSource = async (path: string) => {
-    if (!confirm(`Stop syncing ${path}?`)) return;
+    if (!(await ask({ title: `Stop syncing ${path}?`, message: "Its clusters disappear from the catalog. The file itself is kept.", ok: "Stop syncing" })))
+      return;
     await api.removeKubeconfigSource(path).catch((e) => notify(String(e), "bad"));
     onChanged();
   };

@@ -2,7 +2,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api, Connection, ContextInfo, Contexts, KubeObject, newId, onApiError, ResourceInfo } from "./api";
 import { Catalog } from "./components/Catalog";
 import { MainTab, MainTabs, StatusBar, TitleBar } from "./components/Chrome";
-import { ClusterSettings } from "./components/ClusterSettings";
+import { askRemoveContext, ClusterSettings } from "./components/ClusterSettings";
+import { ConfirmHost } from "./components/Confirm";
 import { ClusterView, Navigate } from "./components/ClusterView";
 import { Preferences } from "./components/Preferences";
 import { Command, CommandPalette } from "./components/CommandPalette";
@@ -580,7 +581,7 @@ export default function App() {
               copy: (text) => navigator.clipboard.writeText(text).then(() => notify(`Copied ${text}`)),
               reveal: (path) => api.reveal(path).catch((e) => notify(String(e), "bad")),
               remove: async (c) => {
-                if (!confirm(`Remove context "${c.name}" from ${c.file}?\n\nA backup is kept as ${c.file}.bens-backup.`)) return;
+                if (!(await askRemoveContext(c))) return;
                 try {
                   await api.deleteContext(c.file, c.name);
                   notify(`Removed ${c.name}`);
@@ -596,6 +597,7 @@ export default function App() {
       )}
       {palette && <CommandPalette commands={commands} onClose={() => setPalette(false)} />}
       {toast && <div className={`toast ${toast.tone}`}>{toast.text}</div>}
+      <ConfirmHost />
     </div>
   );
 }

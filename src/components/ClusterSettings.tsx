@@ -3,6 +3,7 @@ import { api, clusterApi, ContextInfo } from "../api";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import { clusterColor, clusterName, ClusterPrefs, initials, saveClusterPrefs, usePrefs } from "../prefs";
 import { ClusterIcon } from "./ClusterIcon";
+import { ask } from "./Confirm";
 import { CodeEditor } from "./CodeEditor";
 import { resetPrometheus } from "./Charts";
 import { DEFAULT_RATES, detectCostSource, formatMoney, ratesFrom, resetCostCache } from "../cost";
@@ -129,7 +130,7 @@ export function ClusterSettings({ ctx, connected, initial, onClose, onReconnect,
               <button
                 className="danger"
                 onClick={async () => {
-                  if (!confirm(`Remove context "${ctx.name}" from ${ctx.file}?`)) return;
+                  if (!(await askRemoveContext(ctx))) return;
                   try {
                     await api.deleteContext(ctx.file, ctx.name);
                     notify(`Removed ${ctx.name}`);
@@ -274,12 +275,13 @@ function KubeconfigBlock({
       setText(draft);
       notify("Kubeconfig saved");
       onChanged();
-      if (connected && confirm("Kubeconfig saved. Reconnect to apply the changes?")) onReconnect();
     } catch (e) {
       notify(String(e), "bad");
+      return;
     } finally {
       setBusy(false);
     }
+    if (connected && (await ask({ title: "Kubeconfig saved. Reconnect to apply the changes?", ok: "Reconnect", cancel: "Later" }))) onReconnect();
   };
 
   return (
@@ -304,7 +306,14 @@ function KubeconfigBlock({
             <button className="primary" disabled={!dirty || busy} onClick={saveFile}>
               Save
             </button>
-            <button onClick={() => (!dirty || confirm("Discard changes?")) && setText(undefined)}>Close</button>
+            <button
+              onClick={async () =>
+                (!dirty || (await ask({ title: "Discard changes?", message: "Your edits to the kubeconfig are lost.", ok: "Discard", danger: true }))) &&
+                setText(undefined)
+              }
+            >
+              Close
+            </button>
           </>
         )}
       </div>
@@ -541,3 +550,14 @@ function CostSettings({
     </>
   );
 }
+
+/** Asks before removing a context from its kubeconfig file. */
+export const askRemoveContext = (ctx: ContextInfo) =>
+  ask({
+    title: `Remove context ${ctx.name}?`,
+    message: ctx.pasted
+      ? "It is deleted from the kubeconfig Bens stored for you."
+      : `It is deleted from ${ctx.file}, with its cluster and user entries if nothing else uses them. A backup is kept as ${ctx.file}.bens-backup.`,
+    ok: "Remove",
+    danger: true,
+  });

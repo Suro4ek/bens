@@ -10,7 +10,8 @@ import { selectedText, unlessSelecting } from "../clipboard";
 import { pluralTitle } from "../nav";
 import type { DockActions } from "./DetailsPanel";
 import { ContextMenu, objectMenuItems, ScaleDialog } from "./ObjectMenu";
-import { useApi } from "../clusterContext";
+import { useApi, useClusterName } from "../clusterContext";
+import { askDelete } from "./Confirm";
 
 interface Props {
   resource: ResourceInfo;
@@ -35,6 +36,7 @@ const uidOf = (o: KubeObject) => o.metadata.uid ?? `${o.metadata.namespace}/${o.
 
 export function ResourceTable({ resource, watch, allNamespaces, metrics, extraColumns, selectedUid, onSelect, notify, actions, onCreate, onCopy, openKubeconfig }: Props) {
   const capi = useApi();
+  const clusterName = useClusterName();
   const [menu, setMenu] = useState<{ x: number; y: number; obj: KubeObject; selection?: string } | null>(null);
   const [scaling, setScaling] = useState<KubeObject | null>(null);
   const [checked, setChecked] = useState<Set<string>>(new Set());
@@ -145,9 +147,7 @@ export function ResourceTable({ resource, watch, allNamespaces, metrics, extraCo
   };
 
   const deleteChecked = async () => {
-    const names = checkedRows.map((o) => o.metadata.name);
-    if (!confirm(`Delete ${names.length} ${resource.kind}(s)?\n\n${names.slice(0, 20).join("\n")}${names.length > 20 ? "\n…" : ""}`))
-      return;
+    if (!(await askDelete(resource, checkedRows, clusterName))) return;
     const results = await Promise.allSettled(
       checkedRows.map((o) => capi.delete(resource.key, o.metadata.namespace, o.metadata.name)),
     );
@@ -289,6 +289,7 @@ export function ResourceTable({ resource, watch, allNamespaces, metrics, extraCo
           y={menu.y}
           items={objectMenuItems(menu.obj, {
             capi,
+            clusterName,
             resource,
             actions,
             notify,

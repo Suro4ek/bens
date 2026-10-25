@@ -3,6 +3,7 @@ import { open } from "@tauri-apps/plugin-dialog";
 import { api, Contexts, ContextInfo } from "../api";
 import { clusterName, usePrefs } from "../prefs";
 import { ClusterIcon } from "./ClusterIcon";
+import { ask } from "./Confirm";
 
 interface Props {
   catalog: Contexts;
@@ -24,7 +25,8 @@ export function Catalog({ catalog, connecting, connected, error, onPick, onSetti
   const { clusters } = usePrefs();
 
   const removeSource = async (path: string, what: string) => {
-    if (!confirm(`Remove ${what}?`)) return;
+    if (!(await ask({ title: `Remove ${what}?`, message: "Its clusters disappear from the catalog. The file itself is kept.", ok: "Remove", danger: true })))
+      return;
     try {
       await api.removeKubeconfigSource(path);
       onChanged();

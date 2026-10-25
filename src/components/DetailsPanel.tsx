@@ -8,9 +8,10 @@ import { age, podReady, podStatus, storage } from "../util";
 import { ForwardControls, PortForwardDialog, useForwards } from "./PortForwards";
 import { ArgoAppDetails, FluxActions, IngressDetails, NodeCharts, PodCharts, SecretData } from "./DetailsExtras";
 import { isFlux } from "../gitops";
-import { containerItems, HoverMenu, LOG_WORKLOADS } from "./ObjectMenu";
+import { askDrain, askNodeShell, askRestart, containerItems, HoverMenu, LOG_WORKLOADS } from "./ObjectMenu";
+import { askDelete } from "./Confirm";
 import { CLAIM_TEMPLATES, CLAIMS, DEVICE_CLASSES, SLICES } from "../dra";
-import { useApi } from "../clusterContext";
+import { useApi, useClusterName } from "../clusterContext";
 import { copyText, unlessSelecting } from "../clipboard";
 import {
   DeviceClassDetails,
@@ -446,8 +447,9 @@ export function DetailsPanel({ resource, resources, obj, onClose, onNavigate, no
     }
   };
 
-  const remove = () => {
-    if (!confirm(`Delete ${resource.kind} ${obj.metadata.name}?`)) return;
+  const clusterName = useClusterName();
+  const remove = async () => {
+    if (!(await askDelete(resource, [obj], clusterName))) return;
     run(`Deleted ${obj.metadata.name}`, () => capi.delete(resource.key, ns, obj.metadata.name)).then(onClose);
   };
 
@@ -499,10 +501,7 @@ export function DetailsPanel({ resource, resources, obj, onClose, onNavigate, no
             <button
               className="icon"
               title="Node shell — runs a privileged pod in kube-system on this node; it is deleted when the tab closes"
-              onClick={() =>
-                confirm(`Open a root shell on node ${obj.metadata.name}?\n\nA privileged pod will be created in kube-system and removed when the tab is closed.`) &&
-                actions.openNodeShell(obj)
-              }
+              onClick={async () => (await askNodeShell(obj.metadata.name, clusterName)) && actions.openNodeShell(obj)}
             >
               <SquareTerminal size={16} />
             </button>
@@ -512,7 +511,9 @@ export function DetailsPanel({ resource, resources, obj, onClose, onNavigate, no
               className="icon"
               title="Restart"
               disabled={busy}
-              onClick={() => run("Restart triggered", () => capi.restart(resource.key, ns, obj.metadata.name))}
+              onClick={async () =>
+                (await askRestart(resource, obj, clusterName)) && run("Restart triggered", () => capi.restart(resource.key, ns, obj.metadata.name))
+              }
             >
               <RotateCw size={16} />
             </button>
@@ -532,9 +533,8 @@ export function DetailsPanel({ resource, resources, obj, onClose, onNavigate, no
               className="icon"
               title="Drain"
               disabled={busy}
-              onClick={() => {
-                if (!confirm(`Drain node ${obj.metadata.name}? It will be cordoned and its pods evicted (DaemonSet pods are skipped).`))
-                  return;
+              onClick={async () => {
+                if (!(await askDrain(obj.metadata.name, clusterName))) return;
                 setBusy(true);
                 capi
                   .nodeDrain(obj.metadata.name)
