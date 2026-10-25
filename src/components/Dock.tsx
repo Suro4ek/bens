@@ -18,7 +18,10 @@ export type DockTab = { id: string; cluster: string; title: string } & (
 );
 
 interface Props {
+  /** The tabs of all clusters: they all stay mounted, so shells and log streams keep running. */
   tabs: DockTab[];
+  /** The cluster on screen: only its tabs are shown, so a terminal of another cluster can't be mistaken for its own. */
+  cluster?: string;
   active?: string;
   onActivate: (id: string) => void;
   onClose: (id: string) => void;
@@ -31,13 +34,14 @@ interface Props {
 const HEIGHT_KEY = "dockHeight";
 
 /** Bottom dock (terminals, logs, editors): the tab strip is always there. */
-export function Dock({ tabs, active, onActivate, onClose, onCloseMany, onNewTerminal, clusterLabel }: Props) {
+export function Dock({ tabs, cluster, active, onActivate, onClose, onCloseMany, onNewTerminal, clusterLabel }: Props) {
   const [tabMenu, setTabMenu] = useState<{ x: number; y: number; id: string } | null>(null);
   const [height, setHeight] = useState(() => Number(storage.get(HEIGHT_KEY)) || 320);
   const [collapsed, setCollapsed] = useState(false);
   const [maximized, setMaximized] = useState(false);
   const drag = useRef<{ y: number; h: number } | null>(null);
-  const open = tabs.length > 0 && !collapsed;
+  const shown = tabs.filter((t) => t.cluster === cluster);
+  const open = shown.length > 0 && !collapsed;
 
   return (
     <div className={`dock ${open ? "open" : ""} ${maximized && open ? "maximized" : ""}`} style={open && !maximized ? { height } : undefined}>
@@ -63,12 +67,12 @@ export function Dock({ tabs, active, onActivate, onClose, onCloseMany, onNewTerm
         <ContextMenu
           x={tabMenu.x}
           y={tabMenu.y}
-          items={tabMenuItems(tabs.map((t) => t.id), tabMenu.id, onCloseMany)}
+          items={tabMenuItems(shown.map((t) => t.id), tabMenu.id, onCloseMany)}
           onClose={() => setTabMenu(null)}
         />
       )}
       <div className="dock-tabs">
-        {tabs.map((t) => {
+        {shown.map((t) => {
           const Icon = DOCK_ICONS[t.type];
           return (
             <div
@@ -113,7 +117,7 @@ export function Dock({ tabs, active, onActivate, onClose, onCloseMany, onNewTerm
           <Plus size={16} />
         </button>
         <div className="spacer" />
-        {tabs.length > 0 && (
+        {shown.length > 0 && (
           <>
             <button className="icon" onClick={() => (setMaximized((m) => !m), setCollapsed(false))} title={maximized ? "Restore" : "Fit to window"}>
               {maximized ? <Minimize2 size={14} /> : <Maximize2 size={14} />}
@@ -125,11 +129,13 @@ export function Dock({ tabs, active, onActivate, onClose, onCloseMany, onNewTerm
         )}
       </div>
       {tabs.map((t) => (
-        // All tabs stay mounted so shells and log streams survive tab switches and collapsing.
-        <div key={t.id} className="dock-body" style={{ display: open && t.id === active ? "flex" : "none" }}>
+        // All tabs stay mounted so shells and log streams survive tab and cluster switches and collapsing.
+        <div key={t.id} className="dock-body" style={{ display: open && t.id === active && t.cluster === cluster ? "flex" : "none" }}>
           <ClusterContext.Provider value={t.cluster}>
             {t.type === "logs" && <LogsView source={t.source} initialContainer={t.container} />}
-            {t.type === "shell" && <ShellView pod={t.pod} node={t.node} container={t.container} active={t.id === active && open} />}
+            {t.type === "shell" && (
+              <ShellView pod={t.pod} node={t.node} container={t.container} active={t.id === active && t.cluster === cluster && open} />
+            )}
             {t.type === "yaml" && <YamlView resource={t.resource} obj={t.obj} />}
             {t.type === "create" && <CreateView namespace={t.namespace} initial={t.initial} />}
           </ClusterContext.Provider>

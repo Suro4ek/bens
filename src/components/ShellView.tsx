@@ -4,7 +4,7 @@ import { FitAddon } from "@xterm/addon-fit";
 import "@xterm/xterm/css/xterm.css";
 import { api, ExecEvent, KubeObject, newId } from "../api";
 import { AppPrefs, getAppPrefs, isDark, MONO_FONT, useAppPrefs } from "../prefs";
-import { useApi } from "../clusterContext";
+import { useApi, useClusterId, useClusterName } from "../clusterContext";
 
 const decode = (b64: string) => Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
 
@@ -46,6 +46,8 @@ interface Props {
 
 export function ShellView({ pod, node, container, active }: Props) {
   const capi = useApi();
+  const clusterId = useClusterId();
+  const clusterName = useClusterName();
   const host = useRef<HTMLDivElement>(null);
   const fitRef = useRef<FitAddon>(null);
   const termRef = useRef<Terminal>(null);
@@ -84,6 +86,9 @@ export function ShellView({ pod, node, container, active }: Props) {
       term.writeln(`\x1b[2mStarting node shell pod on ${node} (this can take a moment)…\x1b[0m`);
       started = capi.nodeShellStart(sessionId, { node, ...size }, onEvent);
     } else {
+      // Which cluster kubectl talks to here, so a terminal is never mistaken for another cluster's.
+      const context = clusterId.slice(clusterId.lastIndexOf("#") + 1);
+      term.writeln(`\x1b[2mkubectl context: ${context}${clusterName !== context ? ` (${clusterName})` : ""}\x1b[0m`);
       started = capi.localTerminalStart(sessionId, size, onEvent);
     }
     started

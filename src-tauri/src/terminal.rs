@@ -37,14 +37,23 @@ fn other(e: impl std::fmt::Display) -> Error {
     Error::Other(e.to_string())
 }
 
+/// The overlay's file name: one per cluster (catalog id), not per context name. Two
+/// kubeconfigs can both have a context called `default`, and a terminal reads the
+/// overlay on every `kubectl` call, so a shared file would point it at the other cluster.
+fn overlay_name(cluster: &str, context: &str) -> String {
+    let safe: String = context.chars().map(|c| if c.is_ascii_alphanumeric() { c } else { '_' }).collect();
+    // FNV-1a: stable across runs and Rust versions, unlike DefaultHasher.
+    let hash = cluster.bytes().fold(0xcbf29ce484222325u64, |h, b| (h ^ b as u64).wrapping_mul(0x100000001b3));
+    format!("{safe}-{hash:016x}.yaml")
+}
+
 /// kubectl merges `KUBECONFIG` files and the first one to set `current-context`
 /// (or define a context) wins, so a tiny overlay in front pins the context, and
 /// optionally its namespace, without touching the user's kubeconfig.
-fn context_overlay(app: &AppHandle, context: &str, file: &str, namespace: Option<&str>) -> Result<PathBuf> {
+fn context_overlay(app: &AppHandle, cluster: &str, context: &str, file: &str, namespace: Option<&str>) -> Result<PathBuf> {
     let dir = app.path().app_data_dir().map_err(other)?.join("shell");
     std::fs::create_dir_all(&dir).map_err(other)?;
-    let safe: String = context.chars().map(|c| if c.is_ascii_alphanumeric() { c } else { '_' }).collect();
-    let path = dir.join(format!("{safe}.yaml"));
+    let path = dir.join(overlay_name(cluster, context));
     let q = |s: &str| serde_json::to_string(s).map_err(other);
     let mut yaml = format!("apiVersion: v1\nkind: Config\ncurrent-context: {}\n", q(context)?);
     let ctx = namespace.and_then(|ns| {
@@ -70,7 +79,7 @@ pub fn cluster_kubeconfig_env(app: &AppHandle, state: &AppState, cluster: &str) 
     let (context, file, namespace) = state.with_cluster(cluster, |c| {
         (c.context.clone(), c.kubeconfig_file.clone(), c.prefs.terminal_namespace.clone().filter(|n| !n.trim().is_empty()))
     })?;
-    let overlay = context_overlay(app, &context, &file, namespace.as_deref())?;
+    let overlay = context_overlay(app, cluster, &context, &file, namespace.as_deref())?;
     std::env::join_paths([overlay, PathBuf::from(file)]).map_err(other)
 }
 
@@ -146,5 +155,21 @@ fn default_shell() -> String {
         "powershell.exe".into()
     } else {
         std::env::var("SHELL").unwrap_or_else(|_| if cfg!(target_os = "macos") { "/bin/zsh" } else { "/bin/bash" }.into())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::overlay_name;
+
+    #[test]
+    fn overlays_are_per_cluster() {
+        let a = overlay_name("/home/me/.kube/a.yaml#default", "default");
+        let b = overlay_name("/home/me/.kube/b.yaml#default", "default");
+        assert_ne!(a, b);
+        assert_eq!(a, overlay_name("/home/me/.kube/a.yaml#default", "default"));
+        assert!(a.starts_with("default-") && a.ends_with(".yaml"));
+        // Contexts that only differ in punctuation don't collide either.
+        assert_ne!(overlay_name("f#yc-prod", "yc-prod"), overlay_name("f#yc_prod", "yc_prod"));
     }
 }

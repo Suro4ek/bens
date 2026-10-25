@@ -77,7 +77,8 @@ export default function App() {
   const [namespaces, setNamespaces] = useState<Record<string, string>>({});
   const [namespaceNames, setNamespaceNames] = useState<Record<string, string[]>>({});
   const [dockTabs, setDockTabs] = useState<DockTab[]>([]);
-  const [activeDock, setActiveDock] = useState<string>();
+  /** Each cluster has its own dock, like in Lens: the tab shown in each one. */
+  const [activeDock, setActiveDock] = useState<Record<string, string>>({});
   /** The cluster last on screen: where new terminals and "Create" go while the catalog is shown. */
   const [focused, setFocused] = useState<string>();
   const [palette, setPalette] = useState(false);
@@ -232,6 +233,7 @@ export default function App() {
       setMainTabs(tabs);
       if (clusterOf(live.current.activeTab) === id) setActiveTab(tabs.at(-1)!);
       setDockTabs((t) => t.filter((x) => x.cluster !== id));
+      setActiveDock(({ [id]: _, ...rest }) => rest);
       const h = history.current;
       h.entries = h.entries.filter((e) => clusterOf(e.tab) !== id);
       if (!h.entries.length) h.entries = [{ tab: CATALOG }];
@@ -291,15 +293,29 @@ export default function App() {
 
   const openDock = (tab: DockTab) => {
     setDockTabs((t) => [...t, tab]);
-    setActiveDock(tab.id);
+    setActiveDock((a) => ({ ...a, [tab.cluster]: tab.id }));
+    // The dock shows the cluster on screen, so a tab opened for another one brings that cluster up.
+    if (tab.cluster !== focusedCluster) focusCluster(tab.cluster);
   };
-  const closeDockTabs = (ids: string[], fallback?: string) =>
-    setDockTabs((t) => {
-      const next = t.filter((x) => !ids.includes(x.id));
-      if (activeDock && ids.includes(activeDock))
-        setActiveDock(fallback && next.some((x) => x.id === fallback) ? fallback : next[next.length - 1]?.id);
-      return next;
+  const activateDock = (id: string) => {
+    const tab = dockTabs.find((t) => t.id === id);
+    if (tab) setActiveDock((a) => ({ ...a, [tab.cluster]: id }));
+  };
+  const closeDockTabs = (ids: string[], fallback?: string) => {
+    const next = dockTabs.filter((x) => !ids.includes(x.id));
+    setDockTabs(next);
+    setActiveDock((a) => {
+      const out = { ...a };
+      for (const [cluster, id] of Object.entries(a)) {
+        if (!ids.includes(id)) continue;
+        const left = next.filter((x) => x.cluster === cluster);
+        const pick = left.find((x) => x.id === fallback) ?? left.at(-1);
+        if (pick) out[cluster] = pick.id;
+        else delete out[cluster];
+      }
+      return out;
     });
+  };
   const closeDockTab = (id: string) => closeDockTabs([id]);
 
   /** Dock actions of one cluster: the tabs they open stay bound to it. */
@@ -513,8 +529,9 @@ export default function App() {
               {connectedIds.length > 0 && (
                 <Dock
                   tabs={dockTabs}
-                  active={activeDock}
-                  onActivate={setActiveDock}
+                  cluster={focusedCluster}
+                  active={focusedCluster && activeDock[focusedCluster]}
+                  onActivate={activateDock}
                   onClose={closeDockTab}
                   onCloseMany={closeDockTabs}
                   onNewTerminal={() => openTerminal()}

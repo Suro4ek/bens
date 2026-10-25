@@ -151,21 +151,37 @@ describe("several connected clusters", () => {
 });
 
 describe("dock tabs", () => {
-  it("stay bound to the cluster they were opened for", async () => {
+  const dockTabs = () => [...document.querySelectorAll(".dock-tab .dock-title")].map((e) => e.textContent);
+
+  it("each cluster has its own dock, and its terminals keep running while another is shown", async () => {
     const terminals: string[] = [];
+    const stopped: string[] = [];
     handlers.local_terminal_start = ({ cluster }: { cluster: string }) => void terminals.push(cluster);
+    handlers.exec_stop = ({ id }: { id: string }) => void stopped.push(id);
     render(<App />);
     await waitFor(() => expect(connectedClusters()).toEqual(["cluster-a"]));
     await connectB();
 
-    // B is on screen; open a terminal for A from its menu.
+    // B is on screen; a terminal opened for A from its menu brings A up with it.
     fireEvent.contextMenu(screen.getByText("cluster-a"));
     fireEvent.click(screen.getByText("Open terminal"));
-
     await waitFor(() => expect(terminals).toEqual([A.id]));
-    expect(focusedCluster()).toBe("cluster-b");
-    // With two clusters connected the dock tab says which cluster it is for.
-    expect(document.querySelector(".dock-tab .dock-title")?.textContent).toContain("cluster-a");
+    await waitFor(() => expect(focusedCluster()).toBe("cluster-a"));
+    expect(dockTabs()).toEqual(["Terminal - cluster-a"]);
+
+    // On B, A's terminal isn't shown, so it can't be mistaken for B's.
+    openTab("Pods - cluster-b");
+    await waitFor(() => expect(focusedCluster()).toBe("cluster-b"));
+    expect(dockTabs()).toEqual([]);
+    fireEvent.click(screen.getByTitle("New terminal (⌘`)"));
+    await waitFor(() => expect(terminals).toEqual([A.id, B.id]));
+    expect(dockTabs()).toEqual(["Terminal - cluster-b"]);
+
+    // Back on A, its terminal is the same session: it kept running.
+    openTab("Pods - cluster-a");
+    await waitFor(() => expect(dockTabs()).toEqual(["Terminal - cluster-a"]));
+    expect(terminals).toEqual([A.id, B.id]);
+    expect(stopped).toEqual([]);
   });
 });
 
