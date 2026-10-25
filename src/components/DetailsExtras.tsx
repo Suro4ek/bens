@@ -17,7 +17,7 @@ import {
   openArgoUi,
 } from "../gitops";
 import { navId } from "../nav";
-import { formatBytes, formatCpu } from "../util";
+import { decodeB64, formatBytes, formatCpu } from "../util";
 import { PromChart, promQueries, useMetricsHidden, usePrometheusAvailable } from "./Charts";
 import { forwardsChanged } from "./PortForwards";
 import { useApi } from "../clusterContext";
@@ -221,14 +221,6 @@ export function ArgoAppDetails({
     </>
   );
 }
-
-const decodeB64 = (v: string) => {
-  try {
-    return new TextDecoder().decode(Uint8Array.from(atob(v), (c) => c.charCodeAt(0)));
-  } catch {
-    return "<binary>";
-  }
-};
 
 export function SecretData({ obj, notify }: { obj: KubeObject; notify: Notify }) {
   const [shown, setShown] = useState<Record<string, boolean>>({});

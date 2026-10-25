@@ -74,6 +74,7 @@ pub fn run() {
             resources::watch_resources,
             resources::stop_stream,
             resources::get_yaml,
+            resources::get_object,
             resources::apply_yaml,
             resources::delete_resource,
             resources::scale_resource,

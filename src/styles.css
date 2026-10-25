@@ -474,7 +474,7 @@ button.status-item { background: none; padding: 0; color: var(--link); }
 .details dt { color: var(--muted); padding-right: 12px; }
 .details dd { margin: 0; overflow-wrap: anywhere; color: var(--text-strong); }
 .details-body > * { min-width: 0; }
-.toggle-dt { cursor: pointer; display: flex; align-items: center; gap: 4px; }
+.toggle-dt { cursor: pointer; display: flex; flex-wrap: wrap; align-items: center; align-content: flex-start; gap: 4px; }
 .container-card { background: var(--bg-2); border: 1px solid var(--border); border-radius: 6px; padding: 10px 12px; margin-bottom: 8px; display: flex; flex-direction: column; gap: 4px; }
 .container-card .btn-row { margin-top: 6px; }
 .details .chart { background: var(--bg-2); margin-bottom: 8px; }
@@ -732,3 +732,14 @@ button.status-item { background: none; padding: 0; color: var(--link); }
   font-size: 12px; overflow-wrap: anywhere; word-break: break-all; line-height: 1.5;
 }
 .mount { padding: 1px 0; }
+
+/* Container environment in pod details */
+.env-var { padding: 1px 0; }
+.env-name, .env-value { font-family: var(--mono); font-size: 11.5px; }
+.env-value { white-space: pre-wrap; }
+.env-var.overridden .env-name, .env-var.overridden .env-value { text-decoration: line-through; color: var(--muted); }
+.env-problem { color: var(--bad); }
+.env-from { margin-top: 6px; }
+.env-from:first-child { margin-top: 0; }
+.env-from-head { display: flex; align-items: center; gap: 4px; flex-wrap: wrap; }
+button.icon.env-eye { padding: 0 3px; height: auto; vertical-align: middle; margin-left: 2px; }

@@ -109,6 +109,20 @@ pub async fn get_yaml(
     Ok(serde_yaml_ng::to_string(&obj)?)
 }
 
+/// One object as JSON, or `None` when it doesn't exist (a container's ConfigMap or Secret).
+#[tauri::command]
+pub async fn get_object(
+    state: State<'_, AppState>,
+    cluster: String,
+    key: String,
+    namespace: Option<String>,
+    name: String,
+) -> Result<Option<DynamicObject>> {
+    let rt = state.resource(&cluster, &key)?;
+    let api = object_api(state.client(&cluster)?, &rt, namespace.as_deref());
+    Ok(api.get_opt(&name).await?.map(strip))
+}
+
 #[tauri::command]
 pub async fn apply_yaml(
     state: State<'_, AppState>,

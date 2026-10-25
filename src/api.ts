@@ -244,6 +244,9 @@ function makeClusterApi(cluster: string) {
     ) => stream<LogEvent>("stream_logs", "logs", opts, onEvent, (message) => onEvent({ type: "error", message })),
 
     getYaml: (key: string, namespace: string | undefined, name: string) => call<string>("get_yaml", { key, namespace, name }),
+    /** One object; null when it doesn't exist. */
+    getObject: (key: string, namespace: string | undefined, name: string) =>
+      call<KubeObject | null>("get_object", { key, namespace, name }),
     applyYaml: (key: string, namespace: string | undefined, name: string, yaml: string) =>
       call<string>("apply_yaml", { key, namespace, name, yaml }),
     delete: (key: string, namespace: string | undefined, name: string) => call<void>("delete_resource", { key, namespace, name }),

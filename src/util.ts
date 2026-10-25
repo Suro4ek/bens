@@ -152,3 +152,12 @@ export function formatBytes(bytes: number): string {
   }
   return `${bytes.toFixed(bytes < 10 && i ? 1 : 0)}${units[i]}`;
 }
+
+/** A Secret value as text. */
+export const decodeB64 = (v: string) => {
+  try {
+    return new TextDecoder().decode(Uint8Array.from(atob(v), (c) => c.charCodeAt(0)));
+  } catch {
+    return "<binary>";
+  }
+};

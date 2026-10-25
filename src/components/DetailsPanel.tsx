@@ -10,6 +10,7 @@ import { ArgoAppDetails, FluxActions, IngressDetails, NodeCharts, PodCharts, Sec
 import { isFlux } from "../gitops";
 import { askDrain, askNodeShell, askRestart, containerItems, HoverMenu, LOG_WORKLOADS } from "./ObjectMenu";
 import { askDelete } from "./Confirm";
+import { ContainerEnv, EnvSources, useEnvSources } from "./ContainerEnv";
 import { CLAIM_TEMPLATES, CLAIMS, DEVICE_CLASSES, SLICES } from "../dra";
 import { useApi, useClusterName } from "../clusterContext";
 import { copyText, unlessSelecting } from "../clipboard";
@@ -120,8 +121,24 @@ const probeText = (p?: any): string | null => {
   return `${how} delay=${p.initialDelaySeconds ?? 0}s timeout=${p.timeoutSeconds ?? 1}s period=${p.periodSeconds ?? 10}s #success=${p.successThreshold ?? 1} #failure=${p.failureThreshold ?? 3}`;
 };
 
+type Navigate = Props["onNavigate"];
+
 /** One container, laid out as a card. */
-function ContainerBlock({ pod, c, actions, init }: { pod: KubeObject; c: any; actions: DockActions; init?: boolean }) {
+function ContainerBlock({
+  pod,
+  c,
+  actions,
+  init,
+  env,
+  onNavigate,
+}: {
+  pod: KubeObject;
+  c: any;
+  actions: DockActions;
+  init?: boolean;
+  env: EnvSources;
+  onNavigate: Navigate;
+}) {
   const statuses = [...((pod.status?.initContainerStatuses ?? []) as any[]), ...((pod.status?.containerStatuses ?? []) as any[])];
   const st = statuses.find((x) => x.name === c.name);
   const state = st ? Object.keys(st.state ?? {})[0] : undefined;
@@ -207,6 +224,7 @@ function ContainerBlock({ pod, c, actions, init }: { pod: KubeObject; c: any; ac
             </dd>
           </>
         )}
+        <ContainerEnv pod={pod} c={c} sources={env} onNavigate={onNavigate} />
         {mounts.length > 0 && <Mounts mounts={mounts} />}
         {probes.map(([name, text]) => (
           <Fragment key={name}>
@@ -268,22 +286,23 @@ function Mounts({ mounts }: { mounts: any[] }) {
   );
 }
 
-function Containers({ pod, actions }: { pod: KubeObject; actions: DockActions }) {
+function Containers({ pod, actions, resources, onNavigate }: { pod: KubeObject; actions: DockActions; resources: ResourceInfo[]; onNavigate: Navigate }) {
   const init = (pod.spec?.initContainers ?? []) as any[];
+  const env = useEnvSources(pod, resources);
   return (
     <>
       {init.length > 0 && (
         <section>
           <h4>Init Containers</h4>
           {init.map((c) => (
-            <ContainerBlock key={c.name} pod={pod} c={c} actions={actions} init />
+            <ContainerBlock key={c.name} pod={pod} c={c} actions={actions} init env={env} onNavigate={onNavigate} />
           ))}
         </section>
       )}
       <section>
         <h4>Containers</h4>
         {((pod.spec?.containers ?? []) as any[]).map((c) => (
-          <ContainerBlock key={c.name} pod={pod} c={c} actions={actions} />
+          <ContainerBlock key={c.name} pod={pod} c={c} actions={actions} env={env} onNavigate={onNavigate} />
         ))}
       </section>
     </>
@@ -661,7 +680,7 @@ export function DetailsPanel({ resource, resources, obj, onClose, onNavigate, no
       </section>
 
       <Conditions items={obj.status?.conditions} />
-      {id === "/pods" && <Containers pod={obj} actions={actions} />}
+      {id === "/pods" && <Containers pod={obj} actions={actions} resources={resources} onNavigate={onNavigate} />}
       {id === "/pods" && <PodResourceClaims pod={obj} resources={resources} onNavigate={onNavigate} />}
       {id === CLAIMS && <ResourceClaimDetails obj={obj} onNavigate={onNavigate} />}
       {id === CLAIM_TEMPLATES && <ResourceClaimTemplateDetails obj={obj} onNavigate={onNavigate} />}
