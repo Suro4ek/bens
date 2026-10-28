@@ -113,6 +113,26 @@ export interface DrainResult {
   failed: string[];
 }
 
+/** An image being pulled on a node, as containerd has it. */
+export interface ImagePull {
+  manifest: string;
+  /** Bytes of the image's layers on the node: the stored layers and the downloaded part of the others. */
+  done: number;
+  total: number;
+  layers: number;
+  layersDone: number;
+}
+
+export interface PullProgress {
+  /** While the helper pod on the node isn't running yet: what it is waiting for. */
+  starting?: string | null;
+  /** The node has no containerd content store where it is looked for. */
+  unsupported: boolean;
+  pulls: ImagePull[];
+  /** Blobs being downloaded right now. */
+  downloading: number;
+}
+
 export interface PromSeries {
   metric: Record<string, string>;
   values: [number, number][];
@@ -289,6 +309,9 @@ function makeClusterApi(cluster: string) {
       protocol: "http" | "https" = "http",
     ) => call<ForwardInfo>("port_forward_start", { kind, namespace, name, remotePort, localPort, protocol }),
 
+    /** Image downloads on a node, read by a helper Job there (started by the first call, gone two minutes after the last). */
+    imagePullProgress: (node: string) => call<PullProgress>("image_pull_progress", { node }),
+    imagePullProgressStop: (node: string) => call<void>("image_pull_progress_stop", { node }),
     nodeCordon: (name: string, unschedulable: boolean) => call<void>("node_cordon", { name, unschedulable }),
     nodeDrain: (name: string) => call<DrainResult>("node_drain", { name }),
 

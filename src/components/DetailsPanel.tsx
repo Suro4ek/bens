@@ -11,6 +11,8 @@ import { isFlux } from "../gitops";
 import { askDrain, askNodeShell, askRestart, containerItems, HoverMenu, LOG_WORKLOADS } from "./ObjectMenu";
 import { askDelete } from "./Confirm";
 import { ContainerEnv, EnvSources, useEnvSources } from "./ContainerEnv";
+import { PullState, PullStatus, usePullProgress } from "./ImagePull";
+import { pullingSince } from "../pulls";
 import { CLAIM_TEMPLATES, CLAIMS, DEVICE_CLASSES, SLICES } from "../dra";
 import { useApi, useClusterName } from "../clusterContext";
 import { copyText, unlessSelecting } from "../clipboard";
@@ -122,6 +124,8 @@ const probeText = (p?: any): string | null => {
 };
 
 type Navigate = Props["onNavigate"];
+/** The node's image download progress, shared by the containers of a pod. */
+type Pull = { state: PullState; running: boolean; start: () => void };
 
 /** One container, laid out as a card. */
 function ContainerBlock({
@@ -131,6 +135,8 @@ function ContainerBlock({
   init,
   env,
   onNavigate,
+  pulling,
+  pull,
 }: {
   pod: KubeObject;
   c: any;
@@ -138,6 +144,9 @@ function ContainerBlock({
   init?: boolean;
   env: EnvSources;
   onNavigate: Navigate;
+  /** Since when its image is being pulled. */
+  pulling?: string;
+  pull: Pull;
 }) {
   const statuses = [...((pod.status?.initContainerStatuses ?? []) as any[]), ...((pod.status?.containerStatuses ?? []) as any[])];
   const st = statuses.find((x) => x.name === c.name);
@@ -205,6 +214,14 @@ function ContainerBlock({
             {c.image}
           </span>
         </dd>
+        {pulling && (
+          <>
+            <dt>Image Pull</dt>
+            <dd>
+              <PullStatus since={pulling} node={pod.spec?.nodeName} pull={pull.state} running={pull.running} onStart={pull.start} />
+            </dd>
+          </>
+        )}
         {c.imagePullPolicy && c.imagePullPolicy !== "IfNotPresent" && (
           <>
             <dt>ImagePullPolicy</dt>
@@ -288,21 +305,38 @@ function Mounts({ mounts }: { mounts: any[] }) {
 
 function Containers({ pod, actions, resources, onNavigate }: { pod: KubeObject; actions: DockActions; resources: ResourceInfo[]; onNavigate: Navigate }) {
   const init = (pod.spec?.initContainers ?? []) as any[];
+  const containers = (pod.spec?.containers ?? []) as any[];
   const env = useEnvSources(pod, resources);
+
+  // Image pulls show in the pod's events, watched while a container waits.
+  const statuses = [...((pod.status?.initContainerStatuses ?? []) as any[]), ...((pod.status?.containerStatuses ?? []) as any[])];
+  const waiting = pod.status?.phase === "Pending" || statuses.some((s) => s.state?.waiting);
+  const eventsKey = resources.find((r) => navId(r) === "/events")?.key;
+  const events = useWatch(waiting && pod.metadata.uid ? eventsKey : undefined, pod.metadata.namespace ?? null, {
+    fieldSelector: `involvedObject.uid=${pod.metadata.uid}`,
+  });
+  const pulling = (c: any, isInit = false) => {
+    const st = statuses.find((s) => s.name === c.name)?.state;
+    return waiting && !st?.running && !st?.terminated ? pullingSince(events.items, c.name, isInit) : undefined;
+  };
+  const anyPulling = [...init.map((c) => pulling(c, true)), ...containers.map((c) => pulling(c))].some(Boolean);
+  const [run, setRun] = useState(0);
+  const pull: Pull = { state: usePullProgress(pod.spec?.nodeName, anyPulling ? run : 0), running: run > 0, start: () => setRun((r) => r + 1) };
+
   return (
     <>
       {init.length > 0 && (
         <section>
           <h4>Init Containers</h4>
           {init.map((c) => (
-            <ContainerBlock key={c.name} pod={pod} c={c} actions={actions} init env={env} onNavigate={onNavigate} />
+            <ContainerBlock key={c.name} pod={pod} c={c} actions={actions} init env={env} onNavigate={onNavigate} pulling={pulling(c, true)} pull={pull} />
           ))}
         </section>
       )}
       <section>
         <h4>Containers</h4>
-        {((pod.spec?.containers ?? []) as any[]).map((c) => (
-          <ContainerBlock key={c.name} pod={pod} c={c} actions={actions} env={env} onNavigate={onNavigate} />
+        {containers.map((c) => (
+          <ContainerBlock key={c.name} pod={pod} c={c} actions={actions} env={env} onNavigate={onNavigate} pulling={pulling(c)} pull={pull} />
         ))}
       </section>
     </>
@@ -680,7 +714,7 @@ export function DetailsPanel({ resource, resources, obj, onClose, onNavigate, no
       </section>
 
       <Conditions items={obj.status?.conditions} />
-      {id === "/pods" && <Containers pod={obj} actions={actions} resources={resources} onNavigate={onNavigate} />}
+      {id === "/pods" && <Containers key={obj.metadata.uid} pod={obj} actions={actions} resources={resources} onNavigate={onNavigate} />}
       {id === "/pods" && <PodResourceClaims pod={obj} resources={resources} onNavigate={onNavigate} />}
       {id === CLAIMS && <ResourceClaimDetails obj={obj} onNavigate={onNavigate} />}
       {id === CLAIM_TEMPLATES && <ResourceClaimTemplateDetails obj={obj} onNavigate={onNavigate} />}

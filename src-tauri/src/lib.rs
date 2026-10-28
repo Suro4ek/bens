@@ -8,6 +8,7 @@ mod pods;
 mod portforward;
 mod prefs;
 mod prometheus;
+mod pulls;
 mod resources;
 mod serviceaccount;
 mod shell_env;
@@ -75,6 +76,8 @@ pub fn run() {
             resources::stop_stream,
             resources::get_yaml,
             resources::get_object,
+            pulls::image_pull_progress,
+            pulls::image_pull_progress_stop,
             resources::apply_yaml,
             resources::delete_resource,
             resources::scale_resource,
