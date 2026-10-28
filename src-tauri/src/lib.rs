@@ -14,6 +14,7 @@ mod serviceaccount;
 mod shell_env;
 mod state;
 mod terminal;
+mod tunnel;
 #[cfg(target_os = "macos")]
 mod titlebar;
 
@@ -115,6 +116,12 @@ pub fn run() {
             pods::exec_resize,
             pods::exec_stop,
         ])
-        .run(tauri::generate_context!())
-        .expect("error while running Bens");
+        .build(tauri::generate_context!())
+        .expect("error while running Bens")
+        .run(|app, event| {
+            // SSH tunnels are processes of their own: stop them with the app.
+            if let tauri::RunEvent::Exit = event {
+                tauri::Manager::state::<state::AppState>(app).disconnect_all();
+            }
+        });
 }

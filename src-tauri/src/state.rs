@@ -28,6 +28,8 @@ pub struct ClusterConn {
     pub client: Client,
     pub resources: HashMap<String, ResourceType>,
     pub prometheus: Option<PromService>,
+    /// The SSH tunnel the cluster is reached through; dropping it stops ssh.
+    pub tunnel: Option<crate::tunnel::Tunnel>,
 }
 
 pub struct ExecSession {
@@ -96,6 +98,13 @@ impl AppState {
     }
 
     /// Drops a cluster's connection and everything running against it; other clusters are untouched.
+    pub fn disconnect_all(&self) {
+        let ids: Vec<String> = self.0.lock().unwrap().clusters.keys().cloned().collect();
+        for id in ids {
+            self.disconnect(&id);
+        }
+    }
+
     pub fn disconnect(&self, cluster: &str) {
         let mut inner = self.0.lock().unwrap();
         inner.clusters.remove(cluster);

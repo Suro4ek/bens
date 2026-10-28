@@ -90,9 +90,21 @@ pub async fn connect(app: AppHandle, state: State<'_, AppState>, file: String, c
     let opts = KubeConfigOptions { context: Some(context.clone()), ..Default::default() };
     let mut config = Config::from_custom_kubeconfig(kubeconfig, &opts).await?;
     config.connect_timeout = Some(CONNECT_TIMEOUT);
+    let tunnel = match prefs.ssh_tunnel.as_deref().map(str::trim).filter(|t| !t.is_empty()) {
+        Some(args) => {
+            let tunnel = crate::tunnel::start(args, &config.cluster_url).await?;
+            if let Some((url, name)) = &tunnel.server {
+                config.cluster_url = url.parse().map_err(|e| Error::Other(format!("tunnel URL: {e}")))?;
+                config.tls_server_name.get_or_insert_with(|| name.clone());
+            }
+            Some(tunnel)
+        }
+        None => None,
+    };
     let app_prefs = crate::prefs::load(&app).app;
     let proxy = prefs.http_proxy.clone().filter(|p| !p.trim().is_empty()).unwrap_or(app_prefs.http_proxy);
-    if !proxy.trim().is_empty() {
+    // Through a tunnel the server is local: no proxy reaches it.
+    if tunnel.is_none() && !proxy.trim().is_empty() {
         config.proxy_url = Some(proxy.trim().parse().map_err(|e| Error::Other(format!("proxy URL: {e}")))?);
     }
     if app_prefs.allow_untrusted_ca {
@@ -139,6 +151,7 @@ pub async fn connect(app: AppHandle, state: State<'_, AppState>, file: String, c
             client,
             resources: types.into_iter().collect(),
             prometheus: None,
+            tunnel,
         },
     );
 

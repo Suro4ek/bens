@@ -41,6 +41,8 @@ in a native app built with Rust and Tauri.
 - Right-click (or `⋮`) menu on every row: logs, shell, scale, restart, cordon/drain, trigger CronJobs,
   edit, delete, and more.
 - Details panel with properties, conditions, containers, ports, owner links, related pods and events.
+  Containers show their environment (values from ConfigMaps and Secrets, Secrets hidden until shown) and,
+  while an image is being pulled, how far the node has got (percentage, speed, time left).
 
 **Workloads and debugging**
 - Logs: follow, previous containers, timestamps, filter with highlighting, and merged logs across all
@@ -61,7 +63,8 @@ in a native app built with Rust and Tauri.
   resource slices, with device allocation shown on nodes and pods.
 
 **Settings**
-- Per-cluster name, icon and color, HTTP/SOCKS5 proxy, terminal namespace, accessible namespaces,
+- Per-cluster name, icon and color, HTTP/SOCKS5 proxy or SSH tunnel through a bastion (`-L …` or just
+  `user@bastion`; kubectl and helm in the terminal use it too), terminal namespace, accessible namespaces,
   Prometheus and cost settings, node shell image.
 - Light, dark and system themes; terminal and editor fonts.
 

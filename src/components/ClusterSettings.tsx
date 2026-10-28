@@ -151,22 +151,43 @@ export function ClusterSettings({ ctx, connected, initial, onClose, onReconnect,
       id: "proxy",
       label: "Proxy",
       content: (
-        <Block
-          title="HTTP proxy"
-          hint={
-            <>
-              Proxy for connections to this cluster's API server, e.g. http://proxy:3128 or socks5://127.0.0.1:1080.
-              Overrides the proxy from Preferences. {needsReconnect}
-            </>
-          }
-        >
-          <TextSetting
-            mono
-            value={prefs.httpProxy}
-            placeholder="http://<address>:<port>"
-            onSave={(httpProxy) => save({ httpProxy })}
-          />
-        </Block>
+        <>
+          <Block
+            title="HTTP proxy"
+            hint={
+              <>
+                Proxy for connections to this cluster's API server, e.g. http://proxy:3128 or socks5://127.0.0.1:1080.
+                Overrides the proxy from Preferences. {needsReconnect}
+              </>
+            }
+          >
+            <TextSetting
+              mono
+              value={prefs.httpProxy}
+              placeholder="http://<address>:<port>"
+              onSave={(httpProxy) => save({ httpProxy })}
+            />
+          </Block>
+          <Block
+            title="SSH tunnel"
+            hint={
+              <>
+                ssh arguments, as in a terminal: <code>-L 6443:10.2.9.152:6443 user@bastion</code>, or just <code>user@bastion</code> to
+                forward the API server from the kubeconfig. While connected, Bens runs <code>ssh -N</code> with them, and goes
+                through the tunnel itself and from its terminal (kubectl, helm); the certificate is still checked against the
+                server's address. Keys and the agent from ~/.ssh are used: Bens can't type passwords. The HTTP proxy is not
+                used through a tunnel. {needsReconnect}
+              </>
+            }
+          >
+            <TextSetting
+              mono
+              value={prefs.sshTunnel}
+              placeholder="-L 6443:10.0.0.1:6443 user@bastion"
+              onSave={(sshTunnel) => save({ sshTunnel })}
+            />
+          </Block>
+        </>
       ),
     },
     {

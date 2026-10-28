@@ -73,6 +73,8 @@ pub struct ClusterPrefs {
     pub hide_from_hotbar: bool,
     /// HTTP or SOCKS5 proxy for the API server connection.
     pub http_proxy: Option<String>,
+    /// ssh arguments (`-L 6443:10.2.9.152:6443 me@bastion`) of a tunnel the API server is reached through.
+    pub ssh_tunnel: Option<String>,
     /// Namespace the cluster terminal (kubectl, helm) starts in.
     pub terminal_namespace: Option<String>,
     pub terminal_cwd: Option<String>,
@@ -153,6 +155,9 @@ pub fn save_app_prefs(app: AppHandle, prefs: AppPrefs) -> Result<()> {
 pub fn save_cluster_prefs(app: AppHandle, state: State<'_, AppState>, id: String, prefs: ClusterPrefs) -> Result<()> {
     if let Some(proxy) = prefs.http_proxy.as_deref().filter(|p| !p.is_empty()) {
         proxy.parse::<http::Uri>().map_err(|e| Error::Other(format!("proxy URL: {e}")))?;
+    }
+    if let Some(tunnel) = prefs.ssh_tunnel.as_deref().filter(|t| !t.trim().is_empty()) {
+        crate::tunnel::parse_args(tunnel)?;
     }
     if prefs.prometheus_mode.as_deref() == Some("manual") {
         parse_service(prefs.prometheus_service.as_deref().unwrap_or_default())?;

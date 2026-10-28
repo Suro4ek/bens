@@ -26,6 +26,8 @@ export interface ClusterPrefs {
   iconImage?: string | null;
   hideFromHotbar?: boolean;
   httpProxy?: string | null;
+  /** ssh arguments of a tunnel to the API server: `-L 6443:10.2.9.152:6443 me@bastion`. */
+  sshTunnel?: string | null;
   terminalNamespace?: string | null;
   terminalCwd?: string | null;
   accessibleNamespaces?: string[];

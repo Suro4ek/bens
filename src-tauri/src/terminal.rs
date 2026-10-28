@@ -48,38 +48,59 @@ fn overlay_name(cluster: &str, context: &str) -> String {
 }
 
 /// kubectl merges `KUBECONFIG` files and the first one to set `current-context`
-/// (or define a context) wins, so a tiny overlay in front pins the context, and
-/// optionally its namespace, without touching the user's kubeconfig.
-fn context_overlay(app: &AppHandle, cluster: &str, context: &str, file: &str, namespace: Option<&str>) -> Result<PathBuf> {
+/// (or define a context or a cluster) wins, so a tiny overlay in front pins the context,
+/// optionally its namespace, and the server of a cluster reached through an SSH tunnel,
+/// without touching the user's kubeconfig.
+pub fn overlay_yaml(context: &str, file: &str, namespace: Option<&str>, tunnel: Option<&(String, String)>) -> Result<String> {
+    let mut overlay = serde_json::json!({ "apiVersion": "v1", "kind": "Config", "current-context": context });
+    if namespace.is_some() || tunnel.is_some() {
+        // read_from makes certificate paths absolute: they stay valid from the overlay.
+        if let Ok(kc) = kube::config::Kubeconfig::read_from(file) {
+            if let Some(c) = kc.contexts.into_iter().find(|c| c.name == context).and_then(|c| c.context) {
+                if let Some(ns) = namespace {
+                    overlay["contexts"] = serde_json::json!([{
+                        "name": context,
+                        "context": { "cluster": c.cluster, "user": c.user.unwrap_or_default(), "namespace": ns }
+                    }]);
+                }
+                let entry = kc.clusters.into_iter().find(|n| n.name == c.cluster).and_then(|n| n.cluster);
+                if let (Some((server, name)), Some(mut entry)) = (tunnel, entry) {
+                    entry.server = Some(server.clone());
+                    entry.tls_server_name.get_or_insert_with(|| name.clone());
+                    overlay["clusters"] = serde_json::json!([{ "name": c.cluster, "cluster": entry }]);
+                }
+            }
+        }
+    }
+    Ok(serde_yaml_ng::to_string(&overlay)?)
+}
+
+fn context_overlay(
+    app: &AppHandle,
+    cluster: &str,
+    context: &str,
+    file: &str,
+    namespace: Option<&str>,
+    tunnel: Option<&(String, String)>,
+) -> Result<PathBuf> {
     let dir = app.path().app_data_dir().map_err(other)?.join("shell");
     std::fs::create_dir_all(&dir).map_err(other)?;
     let path = dir.join(overlay_name(cluster, context));
-    let q = |s: &str| serde_json::to_string(s).map_err(other);
-    let mut yaml = format!("apiVersion: v1\nkind: Config\ncurrent-context: {}\n", q(context)?);
-    let ctx = namespace.and_then(|ns| {
-        let kc = kube::config::Kubeconfig::read_from(file).ok()?;
-        let c = kc.contexts.into_iter().find(|c| c.name == context)?.context?;
-        Some((c, ns))
-    });
-    if let Some((c, ns)) = ctx {
-        yaml += &format!(
-            "contexts:\n- name: {}\n  context:\n    cluster: {}\n    user: {}\n    namespace: {}\n",
-            q(context)?,
-            q(&c.cluster)?,
-            q(c.user.as_deref().unwrap_or_default())?,
-            q(ns)?
-        );
-    }
-    std::fs::write(&path, yaml).map_err(other)?;
+    std::fs::write(&path, overlay_yaml(context, file, namespace, tunnel)?).map_err(other)?;
     Ok(path)
 }
 
 /// `KUBECONFIG` value that points CLI tools at a connected cluster.
 pub fn cluster_kubeconfig_env(app: &AppHandle, state: &AppState, cluster: &str) -> Result<std::ffi::OsString> {
-    let (context, file, namespace) = state.with_cluster(cluster, |c| {
-        (c.context.clone(), c.kubeconfig_file.clone(), c.prefs.terminal_namespace.clone().filter(|n| !n.trim().is_empty()))
+    let (context, file, namespace, tunnel) = state.with_cluster(cluster, |c| {
+        (
+            c.context.clone(),
+            c.kubeconfig_file.clone(),
+            c.prefs.terminal_namespace.clone().filter(|n| !n.trim().is_empty()),
+            c.tunnel.as_ref().and_then(|t| t.server.clone()),
+        )
     })?;
-    let overlay = context_overlay(app, cluster, &context, &file, namespace.as_deref())?;
+    let overlay = context_overlay(app, cluster, &context, &file, namespace.as_deref(), tunnel.as_ref())?;
     std::env::join_paths([overlay, PathBuf::from(file)]).map_err(other)
 }
 
