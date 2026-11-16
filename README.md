@@ -190,6 +190,14 @@ npm test                                          # frontend tests (Vitest)
 cargo test --manifest-path src-tauri/Cargo.toml   # backend tests
 ```
 
+Linux builds currently resolve `glib 0.18.5` through Tauri's GTK 3 dependencies.
+[RUSTSEC-2024-0429](https://rustsec.org/advisories/RUSTSEC-2024-0429.html) affects
+`VariantStrIter`; the fixed `glib >=0.20` cannot satisfy GTK 3's `glib ^0.18` requirement.
+Even Tauri 2.12.5 still requires `gtk ^0.18`, so updating Tauri alone does not fix this advisory.
+No calls to `VariantStrIter` or `array_iter_str` were found in Bens or the checked Tauri/GTK
+runtime sources. The dependency remains affected; this is not a fix or an audit suppression.
+Track the [upstream GTK dependency update](https://github.com/tauri-apps/tauri/issues/12564).
+
 ## Project structure
 
 ```
