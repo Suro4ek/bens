@@ -1,11 +1,12 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { ArrowDownToLine, CaseSensitive, Check, ChevronDown, Clock, Copy, History, Regex, Search, Tag, WrapText, X } from "lucide-react";
+import { ArrowDownToLine, CaseSensitive, Check, ChevronDown, Clock, Copy, History, Pause, Play, Regex, Search, Tag, WrapText, X } from "lucide-react";
 import { AnsiLine, escapeHtml as esc, lineHtml, matchRanges, parseAnsi } from "../ansi";
 import type { KubeObject, ResourceInfo } from "../api";
 import { containerBrick } from "../columns";
 import { useAppPrefs } from "../prefs";
 import { useWatch } from "../useWatch";
 import { useApi } from "../clusterContext";
+import { copyText } from "../clipboard";
 
 const MAX_LINES = 20_000;
 const PODS_KEY = "/v1/pods";
@@ -150,7 +151,9 @@ export function LogsView({ source, initialContainer }: { source: LogsSource; ini
   const [filter, setFilter] = useState("");
   const [caseSensitive, setCaseSensitive] = useState(false);
   const [regex, setRegex] = useState(false);
-  const [follow, setFollow] = useState(true);
+  const [pausedLines, setPausedLines] = useState<Line[] | null>(null);
+  const follow = pausedLines === null;
+  const [copyMessage, setCopyMessage] = useState("");
   const tailLines = useAppPrefs().logTailLines;
   const box = useRef<HTMLPreElement>(null);
 
@@ -169,9 +172,19 @@ export function LogsView({ source, initialContainer }: { source: LogsSource; ini
 
   const [lines, setLines] = useState<Line[]>([]);
   const [states, setStates] = useState<Record<number, string>>({});
+  // Keep the rendered nodes stable while selecting, even if the live buffer is trimmed or reordered.
+  const visibleLines = pausedLines ?? lines;
+  const pause = () => setPausedLines((current) => current ?? lines);
+
+  useEffect(() => {
+    if (!copyMessage) return;
+    const timer = setTimeout(() => setCopyMessage(""), 2500);
+    return () => clearTimeout(timer);
+  }, [copyMessage]);
 
   useEffect(() => {
     setLines([]);
+    setPausedLines(null);
     setStates({});
     if (!streams.length) return;
     const pending: Line[] = [];
@@ -226,7 +239,7 @@ export function LogsView({ source, initialContainer }: { source: LogsSource; ini
     }
   }, [filter, regex, caseSensitive]);
 
-  const shown = useMemo(() => (matcher ? lines.filter((l) => l.text.search(matcher) >= 0) : lines), [lines, matcher]);
+  const shown = useMemo(() => (matcher ? visibleLines.filter((l) => l.text.search(matcher) >= 0) : visibleLines), [visibleLines, matcher]);
 
   const html = useMemo(() => {
     const fmtTs = (l: Line) => {
@@ -247,6 +260,8 @@ export function LogsView({ source, initialContainer }: { source: LogsSource; ini
       .join("\n");
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [shown, timestamps, showNames, streamKey, matcher]);
+  // React also compares the prop object: a fresh object replaces the nodes and clears selection.
+  const markup = useMemo(() => ({ __html: html }), [html]);
 
   useLayoutEffect(() => {
     if (follow && box.current) box.current.scrollTop = box.current.scrollHeight;
@@ -323,6 +338,14 @@ export function LogsView({ source, initialContainer }: { source: LogsSource; ini
           )}
         </div>
         <div className="logs-toggles">
+          <button
+            className={`search-toggle ${!follow ? "on" : ""}`}
+            title={follow ? "Pause live logs" : "Resume live logs"}
+            aria-label={follow ? "Pause live logs" : "Resume live logs"}
+            onClick={() => follow ? pause() : setPausedLines(null)}
+          >
+            {follow ? <Pause size={15} /> : <Play size={15} />}
+          </button>
           <button className={`search-toggle ${timestamps ? "on" : ""}`} onClick={() => setTimestamps((v) => !v)} title="Show timestamps">
             <Clock size={15} />
           </button>
@@ -338,29 +361,39 @@ export function LogsView({ source, initialContainer }: { source: LogsSource; ini
           <button
             className="search-toggle"
             title="Copy shown lines"
-            onClick={() => navigator.clipboard.writeText(box.current?.innerText ?? "")}
+            aria-label="Copy shown lines"
+            onClick={() => copyText(box.current?.innerText ?? "", setCopyMessage, "logs")}
           >
-            <Copy size={15} />
+            {copyMessage === "Copied logs" ? <Check size={15} /> : <Copy size={15} />}
           </button>
         </div>
+        <span className="small" role="status">{copyMessage}</span>
         <div className="spacer" />
         <span className={`small ${errors.length ? "status bad" : "muted"}`} title={errorText || undefined}>
           {shown.length}
-          {matcher ? ` of ${lines.length}` : ""} lines · {status}
+          {matcher ? ` of ${visibleLines.length}` : ""} lines · {!follow && "paused · "}{status}
         </span>
       </div>
       <div className="log-wrap">
         <pre
           ref={box}
           className={`log-box ${wrap ? "" : "nowrap"}`}
+          tabIndex={0}
+          aria-label="Logs"
+          onPointerDown={(e) => {
+            if (e.button === 0) pause();
+          }}
+          onKeyDown={(e) => {
+            if (e.shiftKey || ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "a")) pause();
+          }}
           onScroll={(e) => {
             const el = e.currentTarget;
-            setFollow(el.scrollHeight - el.scrollTop - el.clientHeight < 40);
+            if (el.scrollHeight - el.scrollTop - el.clientHeight >= 40) pause();
           }}
-          dangerouslySetInnerHTML={{ __html: html }}
+          dangerouslySetInnerHTML={markup}
         />
         {!follow && (
-          <button className="log-jump" onClick={() => setFollow(true)} title="Jump to the latest lines">
+          <button className="log-jump" onClick={() => setPausedLines(null)} title="Jump to the latest lines">
             <ArrowDownToLine size={14} /> Latest
           </button>
         )}
